@@ -117,11 +117,9 @@ adani-smart-meter-project/
 ├── DEPLOYMENT.md                     # Google Cloud Run & Docker deployment guide
 ├── docker-compose.yml                # Multi-container orchestration (Frontend + Backend)
 │
-├── api/                              # VERCEL SERVERLESS BACKEND
-│   ├── index.py                      # Serverless Function entrypoint (FastAPI handler)
-│   └── requirements.txt              # Serverless Python dependencies
-│
 ├── backend/                          # FASTAPI BACKEND SERVICE
+│   ├── index.py                      # Vercel serverless function entrypoint (ASGI app)
+│   ├── pyproject.toml                # Vercel entrypoint configuration
 │   ├── Dockerfile                    # Python 3.11 slim production container image
 │   ├── requirements.txt              # Backend Python dependencies
 │   ├── app/

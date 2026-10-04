@@ -4,15 +4,14 @@
   "outputDirectory": "frontend/dist",
   "framework": "vite",
   "functions": {
-    "api/index.py": {
-      "includeFiles": "backend/**",
+    "backend/index.py": {
       "maxDuration": 15
     }
   },
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.py"
+      "destination": "/backend/index.py"
     },
     {
       "source": "/(.*)",

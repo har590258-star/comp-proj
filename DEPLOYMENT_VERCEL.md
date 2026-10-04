@@ -17,13 +17,13 @@ This project is configured to deploy **both Frontend (React / Vite) and Backend 
              Route: /api/(.*)                              Route: /(.*)
         ┌─────────────────────────┐                 ┌─────────────────────────┐
         │  Python Serverless Fn   │                 │   Static SPA Assets     │
-        │      (api/index.py)     │                 │     (frontend/dist)     │
+        │      (backend/index.py)     │                 │     (frontend/dist)     │
         │  FastAPI + MongoDB Atlas│                 │       React + Vite      │
         └─────────────────────────┘                 └─────────────────────────┘
 ```
 
 - **Frontend:** Built via Vite into static assets served globally via Vercel CDN.
-- **Backend:** Runs as a Python Serverless Function (`api/index.py`) routing all `/api/*` requests.
+- **Backend:** Runs as a Python Serverless Function (`backend/index.py`) routing all `/api/*` requests.
 - **Client Routing:** React Router SPA fallback (`/(.*) -> /index.html`) is configured in both root and frontend `vercel.json`.
 
 ---
@@ -131,8 +131,8 @@ Once deployed, your application will have a URL like `https://your-project.verce
 ## 📁 Key Files Added for Vercel Deployment
 
 - [`vercel.json`](./vercel.json): Root configuration coordinating the Vite build, Python serverless function, and routing.
-- [`api/index.py`](./api/index.py): Serverless function entrypoint exposing FastAPI to Vercel's serverless runtime.
-- [`api/requirements.txt`](./api/requirements.txt): Python dependencies for the serverless function.
+- [`backend/index.py`](./backend/index.py): Serverless function entrypoint exposing FastAPI to Vercel's serverless runtime.
+- [`backend/requirements.txt`](./backend/requirements.txt): Python dependencies for the backend service.
 - [`package.json`](./package.json): Root build orchestration script for Vercel's build runner.
 - [`frontend/vercel.json`](./frontend/vercel.json): Client-side SPA routing fallback for standalone frontend deployments.
 - [`frontend/src/services/api.js`](./frontend/src/services/api.js): Dynamic API URL configuration supporting both local dev and unified production domain.

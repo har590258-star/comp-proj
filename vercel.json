@@ -1,8 +1,9 @@
 {
   "version": 2,
-  "buildCommand": "cd frontend && npm install --include=dev && npm run build",
+  "framework": null,
+  "installCommand": "cd frontend && npm install --include=dev",
+  "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/dist",
-  "framework": "vite",
   "functions": {
     "backend/index.py": {
       "maxDuration": 15

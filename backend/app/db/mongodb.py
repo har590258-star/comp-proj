@@ -226,7 +226,7 @@ class DatabaseManager:
                     pass
                 self.client = None
             # Only start background retry loop in persistent server environments (avoid blocking Vercel Serverless)
-            is_serverless = bool(os.getenv("VERCEL") == "1" or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+            is_serverless = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
             if not is_serverless and not self._reconnect_task:
                 self._reconnect_task = asyncio.create_task(self._atlas_reconnect_loop())
             

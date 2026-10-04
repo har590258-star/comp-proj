@@ -62,7 +62,7 @@ class AttendanceService:
         emp = await employees_col.find_one({"employeeId": req.employeeId})
         if not emp:
             users_col = get_collection("users")
-            user_doc = await users_col.find_one({"employeeId": req.employeeId}) if users_col else None
+            user_doc = await users_col.find_one({"employeeId": req.employeeId}) if users_col is not None else None
             emp_name = user_doc.get("name") if user_doc else f"Technician {req.employeeId}"
             emp = {
                 "employeeId": req.employeeId,
@@ -74,7 +74,12 @@ class AttendanceService:
             await employees_col.insert_one(emp)
 
         site_id = req.siteId or emp.get("assignedSiteId")
-        site = (await sites_col.find_one({"id": site_id}) if sites_col else None) or (await sites_col.find_one({}) if sites_col else None)
+        site = None
+        if sites_col is not None:
+            if site_id:
+                site = await sites_col.find_one({"id": site_id})
+            if not site:
+                site = await sites_col.find_one({})
         if not site:
             site = {
                 "id": "site_pune_1",

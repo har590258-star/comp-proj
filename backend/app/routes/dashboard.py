@@ -3,6 +3,7 @@ from typing import Dict, Any, List
 from fastapi import APIRouter
 from app.db.mongodb import get_collection
 from app.schemas.dashboard import DashboardStatsOut, RecentAttendanceItem
+from app.utils.time_utils import get_ist_today, get_ist_today_str
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -16,7 +17,7 @@ async def get_dashboard_stats():
     total_employees = await employees_col.count_documents({"status": "Active"})
 
     # Today's real records
-    today_str = date.today().isoformat()
+    today_str = get_ist_today_str()
     today_records = await attendance_col.find({"date": today_str}).to_list(500)
 
     present_cnt = sum(1 for r in today_records if r.get("status") == "Present")
@@ -49,7 +50,7 @@ async def get_dashboard_stats():
     # Past 7 days attendance trend computed from real attendance
     days_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     attendance_trend = []
-    today_dt = date.today()
+    today_dt = get_ist_today()
     for i in range(6, -1, -1):
         target_day = today_dt - timedelta(days=i)
         target_day_str = target_day.isoformat()

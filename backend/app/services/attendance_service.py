@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from app.db.mongodb import get_collection
 from app.services.map_service import map_service
 from app.schemas.attendance import CheckInRequest, CheckOutRequest
+from app.utils.time_utils import get_ist_now, get_ist_today_str, get_ist_time_str
 
 class AttendanceService:
     async def get_today_status(self, employee_id: str) -> Dict[str, Any]:
@@ -15,7 +16,7 @@ class AttendanceService:
         emp_name = emp.get("name", "Field Technician") if emp else "Field Technician"
         site_name = emp.get("assignedSiteName", "Pune - Phase 1") if emp else "Pune - Phase 1"
 
-        today_str = date.today().isoformat()
+        today_str = get_ist_today_str()
         record = await attendance_col.find_one({
             "employeeId": employee_id,
             "date": today_str
@@ -117,9 +118,9 @@ class AttendanceService:
             if not proximity["isWithinRadius"]:
                 site_name = f"{site_name} (Field Deployment)"
 
-        now = datetime.now()
-        check_in_time_str = now.strftime("%I:%M %p")
-        today_str = date.today().isoformat()
+        now = get_ist_now()
+        check_in_time_str = get_ist_time_str()
+        today_str = get_ist_today_str()
 
         # Update or create attendance record
         filter_query = {"employeeId": req.employeeId, "date": today_str}
@@ -176,14 +177,14 @@ class AttendanceService:
     async def check_out(self, req: CheckOutRequest) -> Dict[str, Any]:
         attendance_col = get_collection("attendance")
         locations_col = get_collection("locations")
-        today_str = date.today().isoformat()
+        today_str = get_ist_today_str()
 
         record = await attendance_col.find_one({"employeeId": req.employeeId, "date": today_str})
         if not record or not record.get("checkInTime") or record.get("checkOutTime"):
             raise HTTPException(status_code=400, detail="No active un-closed check-in record found for today.")
 
-        now = datetime.now()
-        check_out_time_str = now.strftime("%I:%M %p")
+        now = get_ist_now()
+        check_out_time_str = get_ist_time_str()
 
         # Calculate working duration
         working_hours_str = "0h 01m"

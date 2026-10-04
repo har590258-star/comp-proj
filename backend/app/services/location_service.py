@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 from app.db.mongodb import get_collection
 from app.utils.geo import format_distance, calculate_haversine_distance
+from app.utils.time_utils import get_ist_now, get_ist_today_str, get_ist_time_str
 
 class LocationService:
     async def get_current_location(self, employee_id: str) -> Dict[str, Any]:
@@ -19,8 +20,7 @@ class LocationService:
             sort=[("timestamp", -1)]
         )
 
-        now = datetime.now()
-        time_str = now.strftime("%I:%M %p")
+        time_str = get_ist_time_str()
 
         if latest_loc and "latitude" in latest_loc and "longitude" in latest_loc:
             user_lat = latest_loc["latitude"]
@@ -74,7 +74,7 @@ class LocationService:
         attendance_col = get_collection("attendance")
 
         employees = await employees_col.find({"status": "Active"}).to_list(100)
-        today_str = datetime.now().date().isoformat()
+        today_str = get_ist_today_str()
         team_data = []
 
         for emp in employees:

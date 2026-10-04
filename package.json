@@ -1,0 +1,12 @@
+{
+  "name": "adani-smart-meter-project",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GPS Based Attendance & Tracking Application - Adani Smart Meter Project",
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && python -m uvicorn app.main:app --reload",
+    "preview": "cd frontend && npm run preview"
+  }
+}

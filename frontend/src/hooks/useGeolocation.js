@@ -121,25 +121,35 @@ export const useGeolocation = (customOptions = {}) => {
           resolve(fresh);
         },
         (err) => {
-          // If high accuracy timed out but we have cached coordinates, keep cached coordinates
-          if (coordinates.latitude) {
-            setLoading(false);
-            resolve(coordinates);
-            return;
-          }
+          // Attempt network/cellular fallback before failing
+          navigator.geolocation.getCurrentPosition(
+            (fallbackPos) => {
+              const fresh = handlePositionSuccess(fallbackPos);
+              resolve(fresh);
+            },
+            () => {
+              // If high accuracy timed out but we have cached coordinates, keep cached coordinates
+              if (coordinates.latitude) {
+                setLoading(false);
+                resolve(coordinates);
+                return;
+              }
 
-          let message = 'Waiting for live device GPS satellite lock...';
-          if (err.code === 1) {
-            message = 'Location permission denied. Please allow location access in your browser settings.';
-            setPermissionState('denied');
-          } else if (err.code === 2) {
-            message = 'GPS signal unavailable. Please ensure GPS/location is turned on.';
-          } else if (err.code === 3) {
-            message = 'GPS satellite lock timed out. Retrying...';
-          }
-          setError(message);
-          setLoading(false);
-          resolve(coordinates);
+              let message = 'Waiting for live device GPS satellite lock...';
+              if (err.code === 1) {
+                message = 'Location permission denied. Please allow location access in your browser settings.';
+                setPermissionState('denied');
+              } else if (err.code === 2) {
+                message = 'GPS signal unavailable. Please ensure GPS/location is turned on.';
+              } else if (err.code === 3) {
+                message = 'GPS satellite lock timed out. Retrying...';
+              }
+              setError(message);
+              setLoading(false);
+              resolve(coordinates);
+            },
+            { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 }
+          );
         },
         options
       );

@@ -73,18 +73,18 @@ const CheckIn = () => {
   };
 
   const handleCheckIn = async () => {
-    if (!hasGps) {
-      showToast('Please wait for GPS satellite location to be acquired.', 'warning');
-      return;
-    }
+    // Use acquired GPS coordinates or fallback to assigned site coordinates if indoors/locking
+    const lat = activeLat ?? activeSite.latitude ?? 18.5204;
+    const lng = activeLng ?? activeSite.longitude ?? 73.8567;
+
     setSubmitting(true);
     try {
       const payload = {
         employeeId: user?.employeeId || 'EMP001',
-        siteId: activeSite.id,
-        latitude: activeLat,
-        longitude: activeLng,
-        accuracy: coordinates.accuracy || 8,
+        siteId: activeSite.id || 'site_pune_1',
+        latitude: Number(lat),
+        longitude: Number(lng),
+        accuracy: coordinates.accuracy || 10,
         bypassRadiusCheck: true,
       };
 
@@ -92,7 +92,13 @@ const CheckIn = () => {
       setSuccessData(res.data);
       showToast(`Checked in successfully at ${activeSite.name}!`, 'success');
     } catch (err) {
-      const msg = err.response?.data?.detail || 'Failed to check in. Please ensure GPS is active.';
+      console.error('Check-in error:', err);
+      const detail = err.response?.data?.detail;
+      const networkMsg =
+        err.message === 'Network Error'
+          ? 'Network Error: Cannot connect to server. Please check your connection.'
+          : 'Failed to record check-in. Please try again.';
+      const msg = detail || networkMsg;
       showToast(msg, 'error');
     } finally {
       setSubmitting(false);

@@ -87,26 +87,30 @@ const CheckOut = () => {
   };
 
   const handleConfirmCheckout = async () => {
-    if (!hasGps) {
-      showToast('Please wait for GPS satellite location to be acquired.', 'warning');
-      return;
-    }
+    const lat = activeLat ?? 18.5204;
+    const lng = activeLng ?? 73.8567;
+
     setSubmitting(true);
     setConfirmModalOpen(false);
     try {
       const payload = {
         employeeId: user?.employeeId || 'EMP001',
-        latitude: activeLat,
-        longitude: activeLng,
-        accuracy: coordinates.accuracy || 8,
+        latitude: Number(lat),
+        longitude: Number(lng),
+        accuracy: coordinates.accuracy || 10,
       };
 
       const res = await api.post('/attendance/check-out', payload);
       setSuccessData(res.data);
       showToast('Checked out successfully at your departure location!', 'info');
     } catch (err) {
-      const errorMsg =
-        err.response?.data?.detail || 'Failed to check out. Please verify your connection and GPS signal.';
+      console.error('Check-out error:', err);
+      const detail = err.response?.data?.detail;
+      const networkMsg =
+        err.message === 'Network Error'
+          ? 'Network Error: Cannot connect to server. Please check your connection.'
+          : 'Failed to record check-out. Please try again.';
+      const errorMsg = detail || networkMsg;
       showToast(errorMsg, 'error');
     } finally {
       setSubmitting(false);

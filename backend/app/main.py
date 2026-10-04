@@ -22,14 +22,20 @@ logger = logging.getLogger("uvicorn")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Connect to DB and seed
+    # Startup: Connect to DB and seed with fault-tolerance
     logger.info("Starting up GPS Based Attendance & Tracking Application backend...")
-    await db_manager.connect_to_database()
-    await seed_initial_data()
-    logger.info("Database initialized and initial seed completed.")
+    try:
+        await db_manager.connect_to_database()
+        await seed_initial_data()
+        logger.info("Database initialized and initial seed completed.")
+    except Exception as e:
+        logger.warning(f"Lifespan initialization notice: {e}")
     yield
     # Shutdown
-    await db_manager.close_database_connection()
+    try:
+        await db_manager.close_database_connection()
+    except Exception:
+        pass
     logger.info("Application shutdown completed.")
 
 app = FastAPI(
@@ -52,12 +58,15 @@ app.add_middleware(
 # Ensure database is initialized even on serverless cold starts
 @app.middleware("http")
 async def ensure_db_initialized(request: Request, call_next):
-    if not db_manager._initialized:
-        await db_manager.connect_to_database()
-        try:
-            await seed_initial_data()
-        except Exception as e:
-            logger.warning(f"Initial seed notice: {e}")
+    try:
+        if not db_manager._initialized:
+            await db_manager.connect_to_database()
+            try:
+                await seed_initial_data()
+            except Exception as e:
+                logger.warning(f"Initial seed notice: {e}")
+    except Exception as e:
+        logger.warning(f"Middleware DB init notice: {e}")
     response = await call_next(request)
     return response
 

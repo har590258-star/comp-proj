@@ -2,7 +2,16 @@ import hashlib
 import os
 from datetime import datetime, timedelta
 from typing import Optional, Any, Union
-import jwt
+try:
+    import jwt
+    from jwt.exceptions import PyJWTError
+except Exception:
+    try:
+        from jose import jwt
+        from jose.exceptions import JWTError as PyJWTError
+    except Exception:
+        class PyJWTError(Exception):
+            pass
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from app.core.config import settings

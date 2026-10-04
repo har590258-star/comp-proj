@@ -64,6 +64,11 @@ async def ensure_db_initialized(request: Request, call_next):
 # Global error handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail}
+        )
     logger.error(f"Global error: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,

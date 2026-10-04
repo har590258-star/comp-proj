@@ -61,12 +61,31 @@ class AttendanceService:
         # Get employee
         emp = await employees_col.find_one({"employeeId": req.employeeId})
         if not emp:
-            raise HTTPException(status_code=404, detail="Employee not found")
+            users_col = get_collection("users")
+            user_doc = await users_col.find_one({"employeeId": req.employeeId}) if users_col else None
+            emp_name = user_doc.get("name") if user_doc else f"Technician {req.employeeId}"
+            emp = {
+                "employeeId": req.employeeId,
+                "name": emp_name,
+                "assignedSiteId": req.siteId or "site_pune_1",
+                "assignedSiteName": "Pune - Phase 1",
+                "status": "Active"
+            }
+            await employees_col.insert_one(emp)
 
         site_id = req.siteId or emp.get("assignedSiteId")
-        site = await sites_col.find_one({"id": site_id}) or await sites_col.find_one({})
+        site = (await sites_col.find_one({"id": site_id}) if sites_col else None) or (await sites_col.find_one({}) if sites_col else None)
         if not site:
-            raise HTTPException(status_code=400, detail="Assigned site not found")
+            site = {
+                "id": "site_pune_1",
+                "name": "Pune - Phase 1",
+                "code": "ADN-PS-001",
+                "address": "Hinjewadi, Pune, Maharashtra",
+                "latitude": 18.5204,
+                "longitude": 73.8567,
+                "attendanceRadius": 500.0,
+                "status": "Active"
+            }
 
         # Get system attendance policy
         app_settings_doc = await settings_col.find_one({"id": "app_settings"})

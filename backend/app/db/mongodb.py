@@ -215,11 +215,19 @@ class DatabaseManager:
                 self.is_atlas = False
         except Exception as e:
             logger.warning(f"MongoDB Atlas connection attempt deferred ({type(e).__name__}: {str(e)[:120]}).")
-            logger.info("Embedded store initialized. Automatic Atlas background sync active.")
+            logger.info("Embedded store initialized for operational resilience.")
             self.db = InMemoryDatabase()
             self.is_atlas = False
-            # Start background retry loop to catch when IP is whitelisted in Atlas
-            if not self._reconnect_task:
+            # Close failed client if initialized
+            if self.client:
+                try:
+                    self.client.close()
+                except Exception:
+                    pass
+                self.client = None
+            # Only start background retry loop in persistent server environments (avoid blocking Vercel Serverless)
+            is_serverless = bool(os.getenv("VERCEL") == "1" or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+            if not is_serverless and not self._reconnect_task:
                 self._reconnect_task = asyncio.create_task(self._atlas_reconnect_loop())
             
         await self.setup_indexes()

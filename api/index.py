@@ -10,5 +10,3 @@ if backend_dir not in sys.path:
 
 from app.main import app
 
-# Export application for Vercel Serverless Function runtime
-handler = app

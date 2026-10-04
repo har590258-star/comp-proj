@@ -1,2 +1,25 @@
+[project]
+name = "adani-energy-tracker-backend"
+version = "1.0.0"
+description = "FastAPI Backend for Adani Smart Meter Tracker"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.22.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "motor>=3.3.0",
+    "pymongo>=4.5.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "python-multipart>=0.0.6",
+    "requests>=2.31.0",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "python-dotenv>=1.0.0",
+    "certifi>=2023.7.22",
+    "mangum>=0.17.0"
+]
+
 [tool.vercel]
 entrypoint = "index:app"

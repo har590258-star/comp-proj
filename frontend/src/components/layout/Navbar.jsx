@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Menu, Bell, User, ChevronDown, ShieldCheck, Wrench, LogOut, Radio } from 'lucide-react';
+import { Menu, User, ChevronDown, ShieldCheck, Wrench, LogOut, Radio } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 const Navbar = ({ onOpenMobileMenu, isSyncing, lastSyncedAt }) => {
@@ -8,13 +8,7 @@ const Navbar = ({ onOpenMobileMenu, isSyncing, lastSyncedAt }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
-  const notifications = [
-    { id: 1, title: 'Check-In Recorded', desc: 'Checked in at Pune - Phase 1', time: '10m ago', unread: true },
-    { id: 2, title: 'Smart Meter Survey', desc: '14 new meters assigned in Sector 4', time: '1h ago', unread: false },
-    { id: 3, title: 'Geofence Verified', desc: 'GPS accuracy optimal (<10m)', time: '2h ago', unread: false },
-  ];
 
   return (
     <header className="sticky top-0 z-40 w-full bg-white border-b border-slate-200 shadow-sm">
@@ -52,24 +46,8 @@ const Navbar = ({ onOpenMobileMenu, isSyncing, lastSyncedAt }) => {
           </div>
         </div>
 
-        {/* Right: Telemetry, Role Badge, Notifications & Profile */}
+        {/* Right: Role Badge & Profile */}
         <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-          {/* Live System Telemetry Status Indicator (Desktop only) */}
-          <div className="hidden xl:flex items-center gap-2 bg-slate-50 border border-slate-200 px-3.5 py-1.5 rounded-full text-xs font-bold text-slate-700 shadow-xs">
-            <span
-              className={`w-2.5 h-2.5 rounded-full ${
-                isAdmin
-                  ? 'bg-purple-500 animate-pulse'
-                  : 'bg-emerald-500'
-              }`}
-            />
-            <span>
-              {isAdmin
-                ? 'Fleet Telemetry Radar Online'
-                : 'Field Portal Active'}
-            </span>
-          </div>
-
           {/* Role Indicator Badge (Desktop & Tablet only to preserve mobile spacing) */}
           <div className="hidden md:flex items-center shrink-0">
             {isAdmin ? (
@@ -81,43 +59,6 @@ const Navbar = ({ onOpenMobileMenu, isSyncing, lastSyncedAt }) => {
               <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-brand-700 text-xs sm:text-sm font-black shadow-xs whitespace-nowrap">
                 <Wrench className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-600 shrink-0" />
                 <span>Field Technician</span>
-              </div>
-            )}
-          </div>
-
-          {/* Notification bell */}
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => setNotificationsOpen(!notificationsOpen)}
-              className="relative p-2 sm:p-2.5 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors border border-slate-200 shrink-0"
-              aria-label="View notifications"
-            >
-              <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white"></span>
-            </button>
-
-            {/* Notification Dropdown */}
-            {notificationsOpen && (
-              <div 
-                className="absolute right-0 mt-2 sm:mt-3 w-72 sm:w-80 md:w-96 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-xl border border-slate-200 py-3 z-50 animate-in fade-in slide-in-from-top-2"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="px-4 sm:px-5 pb-3 border-b border-slate-100 flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-600">Notifications</span>
-                  <span className="text-xs text-brand-600 font-bold">3 unread</span>
-                </div>
-                <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
-                  {notifications.map((n) => (
-                    <div key={n.id} className="p-3.5 sm:p-4 hover:bg-slate-50 transition-colors cursor-pointer">
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-sm font-bold text-slate-800">{n.title}</p>
-                        <span className="text-xs text-slate-400">{n.time}</span>
-                      </div>
-                      <p className="text-xs text-slate-600 leading-relaxed font-medium">{n.desc}</p>
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
           </div>

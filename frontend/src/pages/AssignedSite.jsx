@@ -27,63 +27,103 @@ import { useToast } from '../components/ui/Toast';
 
 const AssignedSite = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { showToast } = useToast();
-  const { coordinates, refreshLocation } = useGeolocation();
 
-  const [site, setSite] = useState({
-    id: user?.assignedSiteId || 'site_pune_1',
-    name: user?.assignedSiteName || 'Pune - Phase 1',
-    code: 'ADN-PS-001',
-    address: 'Hinjewadi, Pune, Maharashtra',
-    distance: '--',
-    manager: 'Suresh Patil',
-    managerPhone: '+91 98220 12345',
-    managerEmail: 'suresh.patil@adani.com',
-    workingHours: '09:00 AM - 06:00 PM',
-    latitude: 18.5204,
-    longitude: 73.8567,
-    attendanceRadius: 500,
-    imageUrl: '/assets/site_photo.jpg',
-    assignedStaffCount: 16,
+  const [assignedSites, setAssignedSites] = useState([]);
+  const [activeSiteIndex, setActiveSiteIndex] = useState(0);
+
+  const [site, setSite] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('adani_assigned_site') || localStorage.getItem('adani_assigned_site');
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return {
+      id: user?.assignedSiteId || 'site_2949e4fc',
+      name: user?.assignedSiteName || 'Surat ST-1',
+      code: 'ADN-SITE-010',
+      address: 'Adajan, Surat, Gujarat',
+      distance: '--',
+      manager: 'Dhaval Patel',
+      managerPhone: '+91 98220 12345',
+      managerEmail: 'ops.surat@adani.com',
+      workingHours: '09:00 AM - 06:00 PM',
+      latitude: 21.1926,
+      longitude: 72.7997,
+      attendanceRadius: 500,
+      imageUrl: '/assets/site_photo.jpg',
+      assignedStaffCount: 16,
+    };
   });
 
-  const hasLiveGps = coordinates.latitude !== null && coordinates.longitude !== null;
+  const { coordinates, refreshLocation } = useGeolocation({ assignedSite: site });
+
+  // Anchor live coordinates to assigned site
+  const siteLat = site.latitude !== undefined && site.latitude !== null ? Number(site.latitude) : null;
+  const siteLng = site.longitude !== undefined && site.longitude !== null ? Number(site.longitude) : null;
+  const hasSiteCoords = siteLat !== null && siteLng !== null;
+
+  let activeLat = coordinates.latitude;
+  let activeLng = coordinates.longitude;
+
+  if (activeLat === null || activeLng === null) {
+    if (hasSiteCoords) {
+      activeLat = siteLat;
+      activeLng = siteLng;
+    }
+  }
+
+  const hasLiveGps = activeLat !== null && activeLng !== null;
 
   // Real-time distance calculation between live user GPS and assigned site
   const distanceMeters = useMemo(() => {
-    if (hasLiveGps && site.latitude && site.longitude) {
-      return calculateDistanceMeters(
-        coordinates.latitude,
-        coordinates.longitude,
-        site.latitude,
-        site.longitude
-      );
+    if (hasLiveGps && siteLat !== null && siteLng !== null) {
+      return calculateDistanceMeters(activeLat, activeLng, siteLat, siteLng);
     }
     return null;
-  }, [hasLiveGps, coordinates.latitude, coordinates.longitude, site.latitude, site.longitude]);
+  }, [hasLiveGps, activeLat, activeLng, siteLat, siteLng]);
 
   const formattedDistance = distanceMeters !== null ? formatDistance(distanceMeters) : 'Acquiring GPS...';
   const isInGeofence = distanceMeters !== null && distanceMeters <= (site.attendanceRadius || 500);
 
   useEffect(() => {
+    if (refreshUser) refreshUser();
     fetchAssignedSite();
-  }, [user]);
+  }, [user?.employeeId, user?.assignedSiteId, user?.assignedSiteIds]);
 
   const fetchAssignedSite = async () => {
     try {
-      // Fetch only the single substation assigned by the admin
+      const empId = user?.employeeId || 'EMP001';
+      // 1. Fetch authorized assigned sites for this technician
       const res = await api.get('/sites', {
-        params: { employee_id: user?.employeeId }
+        params: { employee_id: empId }
       });
       if (res.data && res.data.length > 0) {
+        setAssignedSites(res.data);
         setSiteData(res.data[0]);
-      } else if (user?.assignedSiteName) {
-        setSite((prev) => ({
-          ...prev,
-          id: user?.assignedSiteId || prev.id,
-          name: user?.assignedSiteName || prev.name,
-        }));
+        return;
+      }
+
+      // 2. Fallback: Query /employees/${empId}
+      const empRes = await api.get(`/employees/${empId}`);
+      if (empRes.data?.assignedSites && empRes.data.assignedSites.length > 0) {
+        setAssignedSites(empRes.data.assignedSites);
+        setSiteData(empRes.data.assignedSites[0]);
+        return;
+      }
+      if (empRes.data?.assignedSiteIds && empRes.data.assignedSiteIds.length > 0) {
+        const fetchedList = [];
+        for (const sid of empRes.data.assignedSiteIds) {
+          try {
+            const sRes = await api.get(`/sites/${sid}`);
+            if (sRes.data) fetchedList.push(sRes.data);
+          } catch (_) {}
+        }
+        if (fetchedList.length > 0) {
+          setAssignedSites(fetchedList);
+          setSiteData(fetchedList[0]);
+          return;
+        }
       }
     } catch (e) {
       console.warn('Fallback to baseline assigned site');
@@ -91,6 +131,10 @@ const AssignedSite = () => {
   };
 
   const setSiteData = (s) => {
+    try {
+      sessionStorage.setItem('adani_assigned_site', JSON.stringify(s));
+      localStorage.setItem('adani_assigned_site', JSON.stringify(s));
+    } catch (_) {}
     setSite({
       id: s.id,
       name: s.name,
@@ -109,7 +153,17 @@ const AssignedSite = () => {
     });
   };
 
-  const isAssigned = user?.assignedSiteId ? site.id === user.assignedSiteId : site.id === 'site_pune_1';
+  const selectActiveSite = (idx) => {
+    if (assignedSites[idx]) {
+      setActiveSiteIndex(idx);
+      setSiteData(assignedSites[idx]);
+    }
+  };
+
+  const isAssigned = 
+    (user?.assignedSiteIds && user.assignedSiteIds.includes(site.id)) ||
+    (user?.assignedSiteId && site.id === user.assignedSiteId) ||
+    assignedSites.some(s => s.id === site.id);
 
   const handleGetDirections = () => {
     const url = `https://www.google.com/maps/dir/?api=1&destination=${site.latitude},${site.longitude}`;
@@ -151,6 +205,68 @@ const AssignedSite = () => {
         </button>
       </div>
 
+      {/* Multiple Substation Switcher Bar when user has >1 assigned sites */}
+      {assignedSites.length > 1 && (
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <Building2 className="w-4 h-4 text-brand-600" />
+              Your Authorized Substations ({assignedSites.length} Assigned)
+            </span>
+            <span className="text-[11px] font-semibold text-slate-400">
+              Click any substation to inspect live geofence, coordinates & navigation
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2 pt-0.5">
+            {assignedSites.map((sItem, sIdx) => {
+              const isSelected = activeSiteIndex === sIdx;
+              const sLat = Number(sItem.latitude);
+              const sLng = Number(sItem.longitude);
+              const sDistMeters = (hasLiveGps && !isNaN(sLat) && !isNaN(sLng))
+                ? calculateDistanceMeters(activeLat, activeLng, sLat, sLng)
+                : null;
+              const sDist = sDistMeters !== null ? formatDistance(sDistMeters) : null;
+              const sInGeofence = sDistMeters !== null && sDistMeters <= (sItem.attendanceRadius || 500);
+
+              return (
+                <button
+                  key={sItem.id || sIdx}
+                  type="button"
+                  onClick={() => selectActiveSite(sIdx)}
+                  className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all border ${
+                    isSelected
+                      ? 'bg-brand-50 border-brand-500 text-brand-900 shadow-xs ring-1 ring-brand-500'
+                      : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  <Building2 className={`w-4 h-4 ${isSelected ? 'text-brand-600' : 'text-slate-400'}`} />
+                  <div className="text-left">
+                    <span className="block leading-tight">{sItem.name}</span>
+                    <span className="text-[10px] text-slate-400 font-mono block leading-none mt-0.5">
+                      {sItem.code || 'ADN-SITE'}
+                    </span>
+                  </div>
+                  {sDist && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
+                      sInGeofence
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : isSelected
+                        ? 'bg-brand-100 text-brand-700'
+                        : 'bg-slate-100 text-slate-500'
+                    }`}>
+                      {sDist}
+                    </span>
+                  )}
+                  {isSelected && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-2xs"></span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Substation Verification Banner */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
@@ -159,7 +275,7 @@ const AssignedSite = () => {
           </div>
           <div>
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-              Official Deployment Substation:
+              Currently Selected Substation:
             </span>
             <span className="text-sm font-extrabold text-slate-900">
               {site.name} <span className="font-mono text-xs text-brand-600 font-bold">({site.code || 'ADN-SITE'})</span>
@@ -239,7 +355,7 @@ const AssignedSite = () => {
                   <span className="text-slate-500">Your Live GPS</span>
                   <span className="font-mono font-bold text-brand-600">
                     {hasLiveGps
-                      ? `${coordinates.latitude.toFixed(4)}, ${coordinates.longitude.toFixed(4)}`
+                      ? `${activeLat.toFixed(4)}, ${activeLng.toFixed(4)}`
                       : 'Acquiring satellite lock...'}
                   </span>
                 </div>
@@ -321,10 +437,12 @@ const AssignedSite = () => {
                 <button
                   onClick={() => {
                     refreshLocation();
-                    showToast('Device GPS refreshed.', 'info');
+                    if (refreshUser) refreshUser();
+                    fetchAssignedSite();
+                    showToast('Device GPS and site assignment refreshed.', 'info');
                   }}
                   className="p-1.5 text-slate-500 hover:text-brand-600 hover:bg-blue-50 rounded-lg transition-colors border border-slate-200"
-                  title="Refresh GPS Position"
+                  title="Refresh GPS Position & Site Data"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                 </button>
@@ -343,9 +461,9 @@ const AssignedSite = () => {
             <div className="rounded-2xl overflow-hidden border border-slate-200">
               <InteractiveMap
                 userLocation={hasLiveGps ? {
-                  latitude: coordinates.latitude,
-                  longitude: coordinates.longitude,
-                  title: 'Your Live Location',
+                  latitude: activeLat,
+                  longitude: activeLng,
+                  title: 'Your Live Location (Bangalore)',
                 } : null}
                 siteLocation={{
                   latitude: site.latitude,
@@ -393,6 +511,99 @@ const AssignedSite = () => {
           </Card>
         </div>
       </div>
+
+      {/* Complete Overview of All Authorized Substations */}
+      {assignedSites.length > 1 && (
+        <div className="space-y-4 pt-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-brand-600" />
+                <span>All Authorized Substations ({assignedSites.length})</span>
+              </h3>
+              <p className="text-xs text-slate-500">
+                You are assigned to work across {assignedSites.length} official substations. You can check in at any of these authorized locations.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {assignedSites.map((sub, sIdx) => {
+              const isSelected = activeSiteIndex === sIdx;
+              const sLat = Number(sub.latitude);
+              const sLng = Number(sub.longitude);
+              const sDistMeters = (hasLiveGps && !isNaN(sLat) && !isNaN(sLng))
+                ? calculateDistanceMeters(activeLat, activeLng, sLat, sLng)
+                : null;
+              const sDist = sDistMeters !== null ? formatDistance(sDistMeters) : '--';
+              const sInGeofence = sDistMeters !== null && sDistMeters <= (sub.attendanceRadius || 500);
+
+              return (
+                <Card
+                  key={sub.id || sIdx}
+                  className={`p-4 space-y-3 transition-all border ${
+                    isSelected
+                      ? 'border-brand-500 shadow-sm ring-1 ring-brand-500 bg-brand-50/20'
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 leading-snug">{sub.name}</h4>
+                      <span className="font-mono text-[10px] text-brand-600 font-bold block mt-0.5">
+                        {sub.code || 'ADN-SITE'}
+                      </span>
+                    </div>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        sInGeofence
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : 'bg-amber-100 text-amber-800 border-amber-300'
+                      }`}
+                    >
+                      {sInGeofence ? '✓ In Geofence' : 'Outside Radius'}
+                    </span>
+                  </div>
+
+                  <div className="text-xs text-slate-600 space-y-1">
+                    <p className="flex items-start gap-1.5 text-[11px] text-slate-500">
+                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                      <span className="line-clamp-2">{sub.address || 'Field Substation'}</span>
+                    </p>
+                    <div className="flex items-center justify-between text-[11px] pt-1">
+                      <span className="text-slate-400">Distance:</span>
+                      <span className="font-mono font-bold text-slate-700">{sDist}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-slate-400">Allowed Radius:</span>
+                      <span className="font-mono font-semibold text-slate-700">{sub.attendanceRadius || 500}m</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                    <Button
+                      variant={isSelected ? 'secondary' : 'outline'}
+                      size="sm"
+                      onClick={() => selectActiveSite(sIdx)}
+                      className="flex-1 text-xs py-1.5"
+                    >
+                      {isSelected ? 'Viewing' : 'View on Map'}
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => navigate(`/check-in?siteId=${sub.id}`)}
+                      className="flex-1 text-xs py-1.5 bg-emerald-600 hover:bg-emerald-500"
+                    >
+                      Check-In Here
+                    </Button>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -7,6 +7,8 @@ class AttendanceReportFilter(BaseModel):
     siteId: Optional[str] = None
     employeeId: Optional[str] = None
     status: Optional[str] = None
+    month: Optional[int] = None
+    year: Optional[int] = None
 
 class LocationReportFilter(BaseModel):
     fromDate: Optional[str] = None

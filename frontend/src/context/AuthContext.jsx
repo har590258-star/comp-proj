@@ -28,6 +28,36 @@ export const AuthProvider = ({ children }) => {
     }
   }, [user]);
 
+  // Keep logged in user profile dynamically synced with database changes (e.g. admin site re-assignments)
+  useEffect(() => {
+    const syncProfile = async () => {
+      if (token || user?.employeeId) {
+        try {
+          const fresh = await authService.getCurrentUser();
+          if (fresh && fresh.employeeId) {
+            setUser((prev) => ({ ...prev, ...fresh }));
+          }
+        } catch (err) {
+          // graceful fallback
+        }
+      }
+    };
+    syncProfile();
+  }, [token]);
+
+  const refreshUser = async () => {
+    try {
+      const fresh = await authService.getCurrentUser();
+      if (fresh && fresh.employeeId) {
+        setUser((prev) => ({ ...prev, ...fresh }));
+        return fresh;
+      }
+    } catch (e) {
+      console.warn('Could not refresh user profile:', e);
+    }
+    return user;
+  };
+
   const login = async (username, password) => {
     setLoading(true);
     try {
@@ -95,6 +125,7 @@ export const AuthProvider = ({ children }) => {
         loading,
         login,
         logout,
+        refreshUser,
         isAuthenticated: Boolean(user),
         isAdmin: user?.role === 'admin',
       }}

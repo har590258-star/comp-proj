@@ -23,4 +23,6 @@ class UserOut(BaseModel):
     employeeId: Optional[str] = None
     assignedSiteId: Optional[str] = None
     assignedSiteName: Optional[str] = None
+    assignedSiteIds: Optional[list] = Field(default_factory=list)
+    assignedSiteNames: Optional[list] = Field(default_factory=list)
     status: str = "Active"

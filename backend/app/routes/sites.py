@@ -30,20 +30,28 @@ async def list_sites(
                 target_emp_id = target_emp_id or payload.get("employee_id") or payload.get("sub")
 
     query = {}
-    # Non-admin users are strictly restricted to seeing ONLY their assigned site
+    # Non-admin users are strictly restricted to seeing ONLY their assigned sites
     if not is_admin and target_emp_id:
         emp = await employees_col.find_one({"employeeId": target_emp_id})
         if not emp:
             emp = await users_col.find_one({"employeeId": target_emp_id})
 
         if emp and emp.get("role") != "admin":
-            assigned_site_id = emp.get("assignedSiteId")
-            assigned_site_name = emp.get("assignedSiteName")
+            assigned_ids = list(emp.get("assignedSiteIds") or [])
+            if emp.get("assignedSiteId") and emp.get("assignedSiteId") not in assigned_ids:
+                assigned_ids.append(emp.get("assignedSiteId"))
+            
+            assigned_names = list(emp.get("assignedSiteNames") or [])
+            if emp.get("assignedSiteName") and emp.get("assignedSiteName") not in assigned_names:
+                assigned_names.append(emp.get("assignedSiteName"))
+
             conditions = []
-            if assigned_site_id:
-                conditions.extend([{"id": assigned_site_id}, {"_id": assigned_site_id}, {"code": assigned_site_id}])
-            if assigned_site_name:
-                conditions.append({"name": assigned_site_name})
+            for s_id in assigned_ids:
+                if s_id:
+                    conditions.extend([{"id": s_id}, {"_id": s_id}, {"code": s_id}])
+            for s_name in assigned_names:
+                if s_name:
+                    conditions.append({"name": s_name})
 
             if conditions:
                 query = {"$or": conditions}
@@ -57,7 +65,12 @@ async def list_sites(
         site_id = item.get("id", str(item.get("_id")))
         item["id"] = site_id
         # Count assigned employees
-        cnt = await employees_col.count_documents({"assignedSiteId": site_id})
+        cnt = await employees_col.count_documents({
+            "$or": [
+                {"assignedSiteId": site_id},
+                {"assignedSiteIds": site_id}
+            ]
+        })
         item["assignedEmployeesCount"] = cnt
         results.append(item)
     return results

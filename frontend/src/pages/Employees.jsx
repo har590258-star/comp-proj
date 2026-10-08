@@ -30,11 +30,11 @@ const Employees = () => {
   const { showToast } = useToast();
 
   const [employees, setEmployees] = useState([
-    { id: '1', employeeId: 'EMP001', name: 'Rahul Sharma', designation: 'Field Technician', site: 'Pune - Phase 1', assignedSiteId: 'site_pune_1', email: 'rahul.sharma@adani.com', phone: '9876543210', role: 'technician', status: 'Active' },
-    { id: '2', employeeId: 'EMP002', name: 'Amit Kumar', designation: 'Field Technician', site: 'Pune - Phase 1', assignedSiteId: 'site_pune_1', email: 'amit.kumar@adani.com', phone: '9876543211', role: 'technician', status: 'Active' },
-    { id: '3', employeeId: 'EMP003', name: 'Sandeep Yadav', designation: 'Field Technician', site: 'Pune - Phase 2', assignedSiteId: 'site_pune_2', email: 'sandeep.yadav@adani.com', phone: '9876543212', role: 'technician', status: 'Active' },
-    { id: '4', employeeId: 'EMP004', name: 'Vikash Singh', designation: 'Field Technician', site: 'Pune - Phase 2', assignedSiteId: 'site_pune_2', email: 'vikash.singh@adani.com', phone: '9876543213', role: 'technician', status: 'Active' },
-    { id: '5', employeeId: 'EMP005', name: 'Neha Patil', designation: 'Supervisor', site: 'Pune - Phase 1', assignedSiteId: 'site_pune_1', email: 'neha.patil@adani.com', phone: '9876543214', role: 'technician', status: 'Active' },
+    { id: '1', employeeId: 'EMP001', name: 'Rahul Sharma', designation: 'Field Technician', site: 'Pune - Phase 1', assignedSiteId: 'site_pune_1', email: 'rahul.sharma@adani.com', phone: '9876543210', role: 'technician', status: 'Present' },
+    { id: '2', employeeId: 'EMP002', name: 'Amit Kumar', designation: 'Field Technician', site: 'Pune - Phase 1', assignedSiteId: 'site_pune_1', email: 'amit.kumar@adani.com', phone: '9876543211', role: 'technician', status: 'Present' },
+    { id: '3', employeeId: 'EMP003', name: 'Sandeep Yadav', designation: 'Field Technician', site: 'Pune - Phase 2', assignedSiteId: 'site_pune_2', email: 'sandeep.yadav@adani.com', phone: '9876543212', role: 'technician', status: 'Present' },
+    { id: '4', employeeId: 'EMP004', name: 'Vikash Singh', designation: 'Field Technician', site: 'Pune - Phase 2', assignedSiteId: 'site_pune_2', email: 'vikash.singh@adani.com', phone: '9876543213', role: 'technician', status: 'Absent' },
+    { id: '5', employeeId: 'EMP005', name: 'Neha Patil', designation: 'Supervisor', site: 'Pune - Phase 1', assignedSiteId: 'site_pune_1', email: 'neha.patil@adani.com', phone: '9876543214', role: 'technician', status: 'Present' },
   ]);
 
   const [sitesList, setSitesList] = useState([
@@ -58,8 +58,8 @@ const Employees = () => {
     phone: '',
     designation: 'Field Technician',
     role: 'technician',
-    assignedSiteId: 'site_pune_1',
-    status: 'Active',
+    assignedSiteIds: ['site_pune_1'],
+    status: 'Present',
   });
 
   useEffect(() => {
@@ -72,18 +72,35 @@ const Employees = () => {
       setLoading(true);
       const res = await api.get('/employees');
       if (res.data && res.data.length > 0) {
-        const mapped = res.data.map((e) => ({
-          id: e.id,
-          employeeId: e.employeeId,
-          name: e.name,
-          designation: e.designation || 'Field Technician',
-          site: e.assignedSiteName || 'Pune - Phase 1',
-          assignedSiteId: e.assignedSiteId || 'site_pune_1',
-          email: e.email,
-          phone: e.phone,
-          role: e.role,
-          status: e.status || 'Active',
-        }));
+        const mapped = res.data.map((e) => {
+          const rawStatus = (e.status || '').toLowerCase().trim();
+          const mappedStatus =
+            rawStatus === 'inactive' || rawStatus === 'absent' ? 'Absent' : 'Present';
+          
+          const rawSiteIds = (e.assignedSiteIds && e.assignedSiteIds.length > 0)
+            ? e.assignedSiteIds
+            : (e.assignedSiteId ? [e.assignedSiteId] : ['site_pune_1']);
+          
+          const rawSiteNames = (e.assignedSiteNames && e.assignedSiteNames.length > 0)
+            ? e.assignedSiteNames
+            : (e.assignedSiteName ? [e.assignedSiteName] : [e.site || 'Pune - Phase 1']);
+
+          return {
+            id: e.id,
+            employeeId: e.employeeId,
+            name: e.name,
+            designation: e.designation || 'Field Technician',
+            site: rawSiteNames[0] || 'Pune - Phase 1',
+            assignedSiteId: rawSiteIds[0] || 'site_pune_1',
+            assignedSiteIds: rawSiteIds,
+            assignedSiteNames: rawSiteNames,
+            assignedSites: e.assignedSites || [],
+            email: e.email,
+            phone: e.phone,
+            role: e.role,
+            status: mappedStatus,
+          };
+        });
         setEmployees(mapped);
       }
     } catch (e) {
@@ -97,9 +114,24 @@ const Employees = () => {
     try {
       const res = await api.get('/sites');
       if (res.data && res.data.length > 0) {
-        setSitesList(res.data.map((s) => ({ label: s.name, value: s.id })));
+        setSitesList(res.data.map((s) => ({ label: s.name, value: s.id, code: s.code })));
       }
     } catch (e) {}
+  };
+
+  const toggleSiteSelection = (siteId) => {
+    setFormData((prev) => {
+      const current = prev.assignedSiteIds || [];
+      if (current.includes(siteId)) {
+        if (current.length === 1) {
+          showToast('At least one site must remain assigned.', 'warning');
+          return prev;
+        }
+        return { ...prev, assignedSiteIds: current.filter((id) => id !== siteId) };
+      } else {
+        return { ...prev, assignedSiteIds: [...current, siteId] };
+      }
+    });
   };
 
   const openAddModal = () => {
@@ -111,14 +143,22 @@ const Employees = () => {
       phone: '',
       designation: 'Field Technician',
       role: 'technician',
-      assignedSiteId: sitesList[0]?.value || 'site_pune_1',
-      status: 'Active',
+      assignedSiteIds: [sitesList[0]?.value || 'site_pune_1'],
+      status: 'Present',
     });
     setModalOpen(true);
   };
 
   const openEditModal = (emp) => {
     setEditingEmp(emp);
+    const rawStatus = (emp.status || '').toLowerCase().trim();
+    const currentStatus =
+      rawStatus === 'inactive' || rawStatus === 'absent' ? 'Absent' : 'Present';
+    
+    const initialSiteIds = (emp.assignedSiteIds && emp.assignedSiteIds.length > 0)
+      ? emp.assignedSiteIds
+      : (emp.assignedSiteId ? [emp.assignedSiteId] : ['site_pune_1']);
+
     setFormData({
       employeeId: emp.employeeId,
       name: emp.name,
@@ -126,8 +166,8 @@ const Employees = () => {
       phone: emp.phone || '',
       designation: emp.designation,
       role: emp.role,
-      assignedSiteId: emp.assignedSiteId || 'site_pune_1',
-      status: emp.status,
+      assignedSiteIds: initialSiteIds,
+      status: currentStatus,
     });
     setModalOpen(true);
   };
@@ -138,43 +178,56 @@ const Employees = () => {
       showToast('Name and Employee ID are required.', 'error');
       return;
     }
+    if (!formData.assignedSiteIds || formData.assignedSiteIds.length === 0) {
+      showToast('Please select at least one assigned substation site.', 'error');
+      return;
+    }
 
-    const assignedSite = sitesList.find((s) => s.value === formData.assignedSiteId);
-    const siteName = assignedSite ? assignedSite.label : 'Pune - Phase 1';
+    const selectedSiteNames = formData.assignedSiteIds.map(
+      (sid) => sitesList.find((s) => s.value === sid)?.label || sid
+    );
+    const primarySiteId = formData.assignedSiteIds[0] || 'site_pune_1';
+    const primarySiteName = selectedSiteNames[0] || 'Pune - Phase 1';
+
+    const payload = {
+      ...formData,
+      assignedSiteId: primarySiteId,
+      assignedSiteName: primarySiteName,
+      assignedSiteIds: formData.assignedSiteIds,
+      assignedSiteNames: selectedSiteNames,
+    };
 
     try {
       if (editingEmp) {
-        await api.put(`/employees/${editingEmp.id}`, {
-          ...formData,
-          assignedSiteName: siteName,
-        });
+        await api.put(`/employees/${editingEmp.id}`, payload);
         setEmployees((prev) =>
           prev.map((emp) =>
-            emp.id === editingEmp.id ? { ...emp, ...formData, site: siteName } : emp
+            emp.id === editingEmp.id
+              ? {
+                  ...emp,
+                  ...payload,
+                  site: primarySiteName,
+                }
+              : emp
           )
         );
-        showToast(`Employee ${formData.name} updated successfully!`);
+        showToast(`Employee ${formData.name} updated with ${formData.assignedSiteIds.length} assigned site(s)!`);
       } else {
-        const payload = {
-          ...formData,
-          assignedSiteName: siteName,
-        };
         const res = await api.post('/employees', payload);
         const newEmp = {
           id: res.data?.id || `emp_${Date.now()}`,
-          ...formData,
-          site: siteName,
+          ...payload,
+          site: primarySiteName,
         };
         setEmployees((prev) => [newEmp, ...prev]);
-        showToast(`Employee ${formData.name} enrolled successfully!`);
+        showToast(`Employee ${formData.name} enrolled with ${formData.assignedSiteIds.length} assigned site(s)!`);
       }
       setModalOpen(false);
     } catch (err) {
-      // Local optimistic update
       const newEmp = {
         id: editingEmp ? editingEmp.id : `emp_${Date.now()}`,
-        ...formData,
-        site: siteName,
+        ...payload,
+        site: primarySiteName,
       };
       if (editingEmp) {
         setEmployees((prev) => prev.map((e) => (e.id === editingEmp.id ? newEmp : e)));
@@ -277,7 +330,20 @@ const Employees = () => {
                     <span className="font-semibold text-slate-700">{emp.employeeId}</span> |{' '}
                     <span>{emp.designation}</span>
                   </p>
-                  <p className="text-[11px] text-brand-600 font-medium mt-0.5">{emp.site}</p>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    {(emp.assignedSiteNames && emp.assignedSiteNames.length > 0
+                      ? emp.assignedSiteNames
+                      : [emp.site || 'Pune - Phase 1']
+                    ).map((sName, sIdx) => (
+                      <span
+                        key={sIdx}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold bg-brand-50 text-brand-700 px-2 py-0.5 rounded-lg border border-brand-200"
+                      >
+                        <Building2 className="w-3 h-3 text-brand-500" />
+                        {sName}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -361,15 +427,6 @@ const Employees = () => {
               ]}
             />
             <Select
-              label="Assigned Site"
-              value={formData.assignedSiteId}
-              onChange={(e) => setFormData({ ...formData, assignedSiteId: e.target.value })}
-              options={sitesList}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Select
               label="System Role"
               value={formData.role}
               onChange={(e) => setFormData({ ...formData, role: e.target.value })}
@@ -378,13 +435,97 @@ const Employees = () => {
                 { label: 'Administrator (Full Access)', value: 'admin' },
               ]}
             />
+          </div>
+
+          {/* Multiple Site Assignment Selector */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold text-slate-700">
+                Assigned Substations & Sites ({formData.assignedSiteIds?.length || 0} selected)
+              </label>
+              <span className="text-[11px] text-slate-400 font-medium">Click to assign multiple sites</span>
+            </div>
+            
+            {/* Selected site tags */}
+            {formData.assignedSiteIds && formData.assignedSiteIds.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2.5">
+                {formData.assignedSiteIds.map((sid) => {
+                  const sObj = sitesList.find((s) => s.value === sid);
+                  const sLabel = sObj ? sObj.label : sid;
+                  return (
+                    <span
+                      key={sid}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-brand-50 text-brand-800 border border-brand-200 shadow-2xs"
+                    >
+                      <Building2 className="w-3.5 h-3.5 text-brand-600" />
+                      <span>{sLabel}</span>
+                      <button
+                        type="button"
+                        onClick={() => toggleSiteSelection(sid)}
+                        className="hover:text-rose-600 ml-0.5 text-slate-400 font-bold"
+                        title="Remove"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Sites selection grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1.5 border border-slate-200 rounded-xl bg-slate-50/50">
+              {sitesList.map((siteOpt) => {
+                const isSelected = formData.assignedSiteIds?.includes(siteOpt.value);
+                return (
+                  <button
+                    type="button"
+                    key={siteOpt.value}
+                    onClick={() => toggleSiteSelection(siteOpt.value)}
+                    className={`flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition-all ${
+                      isSelected
+                        ? 'bg-white border-brand-500 text-brand-900 shadow-xs ring-1 ring-brand-500'
+                        : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <div
+                        className={`w-4 h-4 rounded-md flex items-center justify-center border transition-all ${
+                          isSelected
+                            ? 'bg-brand-600 border-brand-600 text-white'
+                            : 'border-slate-300 bg-white'
+                        }`}
+                      >
+                        {isSelected && <CheckCircle className="w-3 h-3" />}
+                      </div>
+                      <div className="truncate">
+                        <span className="font-bold block truncate">{siteOpt.label}</span>
+                        {siteOpt.code && (
+                          <span className="text-[10px] text-slate-400 font-mono block">
+                            {siteOpt.code}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {isSelected && (
+                      <span className="text-[10px] font-bold text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded shrink-0">
+                        Assigned
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
             <Select
-              label="Status"
+              label="Shift Status"
               value={formData.status}
               onChange={(e) => setFormData({ ...formData, status: e.target.value })}
               options={[
-                { label: 'Active', value: 'Active' },
-                { label: 'Inactive', value: 'Inactive' },
+                { label: 'Present', value: 'Present' },
+                { label: 'Absent', value: 'Absent' },
               ]}
             />
           </div>

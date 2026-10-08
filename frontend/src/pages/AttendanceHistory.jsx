@@ -5,11 +5,14 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import Card from '../components/ui/Card';
 import StatusBadge from '../components/ui/StatusBadge';
+import Button from '../components/ui/Button';
+import HolidayModal from '../components/ui/HolidayModal';
 import { LoadingSpinner, EmptyState } from '../components/ui/FeedbackStates';
 
 const AttendanceHistory = () => {
   const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
+  const [showHolidayModal, setShowHolidayModal] = useState(false);
 
   const now = new Date();
   const [activeTab, setActiveTab] = useState('monthly'); // 'daily' | 'weekly' | 'monthly'
@@ -130,24 +133,36 @@ const AttendanceHistory = () => {
           </div>
         </div>
 
-        {/* Admin Employee Filter */}
-        {isAdmin && (
-          <div className="flex items-center gap-2 bg-white px-3.5 py-1.5 rounded-xl border border-slate-200 shadow-xs">
-            <span className="text-xs font-bold text-slate-500">Filter Technician:</span>
-            <select
-              value={selectedEmp}
-              onChange={(e) => setSelectedEmp(e.target.value)}
-              className="text-xs font-bold text-slate-900 bg-transparent focus:outline-none cursor-pointer"
-            >
-              <option value="ALL">All Field Technicians</option>
-              {employeesList.map((emp) => (
-                <option key={emp.employeeId} value={emp.employeeId}>
-                  {emp.name} ({emp.employeeId})
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowHolidayModal(true)}
+            className="bg-white border-brand-200 text-brand-700 hover:bg-brand-50 font-bold text-xs flex items-center gap-1.5 shadow-2xs"
+          >
+            <Calendar className="w-3.5 h-3.5 text-brand-600" />
+            <span>Holidays 2026 (PDF)</span>
+          </Button>
+
+          {/* Admin Employee Filter */}
+          {isAdmin && (
+            <div className="flex items-center gap-2 bg-white px-3.5 py-1.5 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-xs font-bold text-slate-500">Filter Technician:</span>
+              <select
+                value={selectedEmp}
+                onChange={(e) => setSelectedEmp(e.target.value)}
+                className="text-xs font-bold text-slate-900 bg-transparent focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">All Field Technicians</option>
+                {employeesList.map((emp) => (
+                  <option key={emp.employeeId} value={emp.employeeId}>
+                    {emp.name} ({emp.employeeId})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Segmented Control / Tab Toggle matching Screen 6 */}
@@ -257,6 +272,11 @@ const AttendanceHistory = () => {
           </>
         )}
       </Card>
+
+      <HolidayModal
+        isOpen={showHolidayModal}
+        onClose={() => setShowHolidayModal(false)}
+      />
     </div>
   );
 };

@@ -24,7 +24,17 @@ import { LoadingSpinner } from '../components/ui/FeedbackStates';
 const CheckOut = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { coordinates, refreshLocation } = useGeolocation();
+
+  const [assignedSite, setAssignedSite] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('adani_assigned_site') || localStorage.getItem('adani_assigned_site');
+      return saved ? JSON.parse(saved) : null;
+    } catch (_) {
+      return null;
+    }
+  });
+
+  const { coordinates, refreshLocation } = useGeolocation({ assignedSite });
   const { showToast } = useToast();
 
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
@@ -33,17 +43,29 @@ const CheckOut = () => {
   const [shiftData, setShiftData] = useState(null);
   const [successData, setSuccessData] = useState(null);
 
-  const activeLat = coordinates.latitude;
-  const activeLng = coordinates.longitude;
+  const siteLat = assignedSite?.latitude !== undefined && assignedSite?.latitude !== null ? Number(assignedSite.latitude) : null;
+  const siteLng = assignedSite?.longitude !== undefined && assignedSite?.longitude !== null ? Number(assignedSite.longitude) : null;
+  const hasSiteCoords = siteLat !== null && siteLng !== null;
+
+  let activeLat = coordinates.latitude;
+  let activeLng = coordinates.longitude;
+
+  if (activeLat === null || activeLng === null) {
+    if (hasSiteCoords) {
+      activeLat = siteLat;
+      activeLng = siteLng;
+    }
+  }
+
   const hasGps = activeLat !== null && activeLng !== null;
 
   const siteLocation = {
-    name: user?.assignedSiteName || 'Field Operations',
-    code: 'ADN-FLD-001',
-    address: 'Active Field Deployment Zone',
-    manager: 'Operations Lead',
-    latitude: activeLat,
-    longitude: activeLng,
+    name: assignedSite?.name || user?.assignedSiteName || 'Field Operations',
+    code: assignedSite?.code || 'ADN-FLD-001',
+    address: assignedSite?.address || 'Active Field Deployment Zone',
+    manager: assignedSite?.manager || 'Operations Lead',
+    latitude: siteLat !== null ? siteLat : activeLat,
+    longitude: siteLng !== null ? siteLng : activeLng,
   };
 
   useEffect(() => {
@@ -174,8 +196,13 @@ const CheckOut = () => {
                 : "You haven't checked in yet today. To record departure telemetry and compute working hours, please check in first."}
             </p>
           </div>
-          <div className="pt-2 flex justify-center gap-3">
-            {!isAlreadyCheckedOut && (
+          <div className="pt-2 flex flex-wrap justify-center gap-3">
+            {isAlreadyCheckedOut ? (
+              <Button variant="primary" size="md" onClick={() => navigate('/check-in')}>
+                <LogIn className="w-4 h-4 mr-2" />
+                Check In Again for New Shift
+              </Button>
+            ) : (
               <Button variant="primary" size="md" onClick={() => navigate('/check-in')}>
                 <LogIn className="w-4 h-4 mr-2" />
                 Go to Check In
@@ -385,12 +412,16 @@ const CheckOut = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 w-full">
-            <Button variant="outline" size="md" onClick={() => navigate('/attendance')}>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 w-full">
+            <Button variant="outline" size="sm" onClick={() => navigate('/attendance')}>
               Today's Status
             </Button>
-            <Button variant="primary" size="md" onClick={() => navigate('/dashboard')}>
-              Go to Dashboard
+            <Button variant="outline" size="sm" onClick={() => navigate('/dashboard')}>
+              Dashboard
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => navigate('/check-in')} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center justify-center">
+              <LogIn className="w-3.5 h-3.5 mr-1.5" />
+              Check In Again
             </Button>
           </div>
         </Card>

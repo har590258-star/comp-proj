@@ -11,6 +11,12 @@ import {
   Edit2,
   Trash2,
   Navigation,
+  ExternalLink,
+  LocateFixed,
+  Sparkles,
+  Search,
+  X,
+  Loader2,
 } from 'lucide-react';
 import api from '../services/api';
 import Card from '../components/ui/Card';
@@ -19,8 +25,45 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import StatusBadge from '../components/ui/StatusBadge';
 import Modal from '../components/ui/Modal';
+import InteractiveMap from '../components/maps/InteractiveMap';
 import { LoadingSpinner, EmptyState } from '../components/ui/FeedbackStates';
 import { useToast } from '../components/ui/Toast';
+
+const PRESET_LOCATIONS = [
+  { name: 'Surat ST-1', latitude: 21.1926, longitude: 72.7997, address: 'Adajan, Surat, Gujarat' },
+  { name: 'Pune Phase 1', latitude: 18.5204, longitude: 73.8567, address: 'Hinjewadi, Pune, Maharashtra' },
+  { name: 'Pune Phase 2', latitude: 18.5590, longitude: 73.7868, address: 'Baner, Pune, Maharashtra' },
+  { name: 'Ahmedabad Solar', latitude: 23.0225, longitude: 72.5714, address: 'SG Highway, Ahmedabad, Gujarat' },
+  { name: 'Mumbai Central Hub', latitude: 19.0657, longitude: 72.8687, address: 'Bandra Kurla Complex, Mumbai, Maharashtra' },
+];
+
+const LOCAL_SEARCH_INDEX = [
+  { name: 'Surat ST-1 Substation', address: 'Adajan, Surat, Gujarat', latitude: 21.1926, longitude: 72.7997 },
+  { name: 'Surat Central', address: 'Surat, Gujarat, India', latitude: 21.1702, longitude: 72.8311 },
+  { name: 'Hazira Industrial Zone', address: 'Hazira, Surat, Gujarat', latitude: 21.1098, longitude: 72.6465 },
+  { name: 'Mundra Port & SEZ', address: 'Mundra, Kutch, Gujarat', latitude: 22.8396, longitude: 69.7246 },
+  { name: 'Ahmedabad Solar Substation', address: 'SG Highway, Ahmedabad, Gujarat', latitude: 23.0225, longitude: 72.5714 },
+  { name: 'Ahmedabad Central', address: 'Ahmedabad, Gujarat, India', latitude: 23.0225, longitude: 72.5714 },
+  { name: 'Gandhinagar Energy Park', address: 'Gandhinagar, Gujarat', latitude: 23.2156, longitude: 72.6369 },
+  { name: 'Vadodara Distribution Hub', address: 'Vadodara, Gujarat', latitude: 22.3072, longitude: 73.1812 },
+  { name: 'Dahej Industrial Zone', address: 'Dahej, Bharuch, Gujarat', latitude: 21.7126, longitude: 72.5855 },
+  { name: 'Rajkot Substation', address: 'Rajkot, Gujarat', latitude: 22.3039, longitude: 70.8022 },
+  { name: 'Pune Phase 1 (Hinjewadi)', address: 'Hinjewadi Tech Park, Pune, Maharashtra', latitude: 18.5913, longitude: 73.7389 },
+  { name: 'Pune Phase 2 (Baner)', address: 'Baner, Pune, Maharashtra', latitude: 18.5590, longitude: 73.7868 },
+  { name: 'Pune Central', address: 'Shivajinagar, Pune, Maharashtra', latitude: 18.5204, longitude: 73.8567 },
+  { name: 'Mumbai Central Hub (BKC)', address: 'Bandra Kurla Complex, Mumbai, Maharashtra', latitude: 19.0657, longitude: 72.8687 },
+  { name: 'Andheri West Substation', address: 'Andheri West, Mumbai, Maharashtra', latitude: 19.1136, longitude: 72.8697 },
+  { name: 'Navi Mumbai Data Center', address: 'Airoli, Navi Mumbai, Maharashtra', latitude: 19.1559, longitude: 72.9986 },
+  { name: 'Nagpur Solar Park', address: 'MIHAN, Nagpur, Maharashtra', latitude: 21.0545, longitude: 79.0558 },
+  { name: 'Delhi NCR Hub', address: 'Barakhamba Road, Connaught Place, New Delhi', latitude: 28.6304, longitude: 77.2177 },
+  { name: 'Gurugram Smart Hub', address: 'Cyber City, Gurugram, Haryana', latitude: 28.4950, longitude: 77.0895 },
+  { name: 'Noida Tech Center', address: 'Sector 62, Noida, Uttar Pradesh', latitude: 28.6280, longitude: 77.3649 },
+  { name: 'Jaipur Distribution Hub', address: 'Sitapura Industrial Area, Jaipur, Rajasthan', latitude: 26.7900, longitude: 75.8400 },
+  { name: 'Bengaluru Tech Substation', address: 'Whitefield, Bengaluru, Karnataka', latitude: 12.9698, longitude: 77.7499 },
+  { name: 'Hyderabad Substation', address: 'HITEC City, Hyderabad, Telangana', latitude: 17.4435, longitude: 78.3772 },
+  { name: 'Chennai Grid', address: 'OMR, Chennai, Tamil Nadu', latitude: 12.9150, longitude: 80.2280 },
+  { name: 'Kolkata Regional Hub', address: 'Salt Lake Sector V, Kolkata, West Bengal', latitude: 22.5867, longitude: 88.4312 },
+];
 
 const Sites = () => {
   const navigate = useNavigate();
@@ -107,14 +150,22 @@ const Sites = () => {
     }
   };
 
+  const [searchLocationQuery, setSearchLocationQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [showResultsDropdown, setShowResultsDropdown] = useState(false);
+
   const openAddModal = () => {
     setEditingSite(null);
+    setSearchLocationQuery('');
+    setSearchResults([]);
+    setShowResultsDropdown(false);
     setFormData({
       name: '',
       code: `ADN-SITE-00${sites.length + 1}`,
       address: '',
-      latitude: 18.5204,
-      longitude: 73.8567,
+      latitude: 21.1926,
+      longitude: 72.7997,
       manager: '',
       workingHours: '09:00 AM - 06:00 PM',
       attendanceRadius: 500,
@@ -125,43 +176,192 @@ const Sites = () => {
 
   const openEditModal = (site) => {
     setEditingSite(site);
+    setSearchLocationQuery(site.name || '');
+    setSearchResults([]);
+    setShowResultsDropdown(false);
     setFormData({
       name: site.name,
       code: site.code,
       address: site.address,
-      latitude: site.latitude,
-      longitude: site.longitude,
+      latitude: Number(site.latitude) || 21.1926,
+      longitude: Number(site.longitude) || 72.7997,
       manager: site.manager,
       workingHours: site.workingHours,
-      attendanceRadius: site.attendanceRadius,
+      attendanceRadius: Number(site.attendanceRadius) || 500,
       status: site.status,
     });
     setModalOpen(true);
   };
 
+  const searchTimeoutRef = React.useRef(null);
+
+  const handleQueryChange = (val) => {
+    setSearchLocationQuery(val);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (val.trim().length >= 2) {
+      searchTimeoutRef.current = setTimeout(() => {
+        handleSearchLocation(val, false);
+      }, 350);
+    } else {
+      setSearchResults([]);
+      setShowResultsDropdown(false);
+    }
+  };
+
+  const handleSearchLocation = async (queryOverride, autoSelect = false) => {
+    const q = (typeof queryOverride === 'string' ? queryOverride : searchLocationQuery).trim();
+    if (!q || q.length < 2) {
+      return;
+    }
+
+    setSearching(true);
+    setShowResultsDropdown(true);
+
+    // 1. Search local curated dictionary for instant result
+    const qLower = q.toLowerCase();
+    const localMatches = LOCAL_SEARCH_INDEX.filter(
+      (item) =>
+        item.name.toLowerCase().includes(qLower) ||
+        item.address.toLowerCase().includes(qLower)
+    );
+
+    let onlineResults = [];
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=4&countrycodes=in&addressdetails=1`;
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'Accept-Language': 'en' },
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        onlineResults = data.map((item) => ({
+          name: item.display_name.split(',')[0],
+          address: item.display_name,
+          latitude: Number(parseFloat(item.lat).toFixed(6)),
+          longitude: Number(parseFloat(item.lon).toFixed(6)),
+        }));
+      }
+    } catch (err) {
+      // Ignore network abort, fallback to local index
+    } finally {
+      setSearching(false);
+    }
+
+    // Merge online + local
+    const combined = [...onlineResults];
+    for (const lm of localMatches) {
+      if (!combined.some((c) => Math.abs(c.latitude - lm.latitude) < 0.01 && Math.abs(c.longitude - lm.longitude) < 0.01)) {
+        combined.push(lm);
+      }
+    }
+
+    // Keep strictly 2 search options
+    const top2Results = combined.slice(0, 2);
+    setSearchResults(top2Results);
+
+    // If autoSelect (user pressed Enter or clicked Search & Navigate)
+    if (autoSelect && top2Results.length > 0) {
+      selectLocation(top2Results[0], q);
+    } else if (autoSelect && q) {
+      // If no geocoder match found but user searched, still name whatever is searched
+      setFormData((prev) => ({
+        ...prev,
+        name: q,
+        address: prev.address || q,
+      }));
+    }
+  };
+
+  const selectLocation = (loc, customName) => {
+    // Name whatever is searched
+    const siteName = (customName || searchLocationQuery || '').trim() || loc.name;
+    setFormData((prev) => ({
+      ...prev,
+      name: siteName,
+      address: loc.address || siteName,
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+    }));
+    setSearchLocationQuery(siteName);
+    setShowResultsDropdown(false);
+  };
+
+  const handlePinCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      showToast('Geolocation is not supported by your browser.', 'error');
+      return;
+    }
+    showToast('Acquiring device GPS position...', 'info');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
+        setFormData((prev) => ({
+          ...prev,
+          latitude: lat,
+          longitude: lng,
+        }));
+        showToast(`📍 GPS tagged: ${lat}, ${lng}`, 'success');
+      },
+      (err) => {
+        showToast(`Could not acquire GPS: ${err.message}`, 'error');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  const applyPresetLocation = (preset) => {
+    setFormData((prev) => ({
+      ...prev,
+      latitude: preset.latitude,
+      longitude: preset.longitude,
+      address: prev.address ? prev.address : preset.address,
+    }));
+    setSearchLocationQuery(preset.name);
+    setShowResultsDropdown(false);
+    showToast(`📍 Tagged ${preset.name} coordinates`, 'info');
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!formData.name.trim() || !formData.code.trim()) {
+    const finalAddress = (formData.address || searchLocationQuery || '').trim();
+    const finalName = (formData.name || searchLocationQuery || finalAddress).trim();
+
+    if (!finalName || !formData.code.trim()) {
       showToast('Site name and code are required.', 'error');
       return;
     }
 
+    const payload = {
+      ...formData,
+      name: finalName,
+      address: finalAddress || 'Field Operational Zone',
+      latitude: Number(parseFloat(formData.latitude).toFixed(6)),
+      longitude: Number(parseFloat(formData.longitude).toFixed(6)),
+      attendanceRadius: parseFloat(formData.attendanceRadius) || 500,
+    };
+
     try {
       if (editingSite) {
-        await api.put(`/sites/${editingSite.id}`, formData);
+        await api.put(`/sites/${editingSite.id}`, payload);
         setSites((prev) =>
-          prev.map((s) => (s.id === editingSite.id ? { ...s, ...formData } : s))
+          prev.map((s) => (s.id === editingSite.id ? { ...s, ...payload } : s))
         );
-        showToast(`Site ${formData.name} updated successfully!`);
+        showToast(`Site ${payload.name} updated with tagged location!`);
       } else {
-        const res = await api.post('/sites', formData);
+        const res = await api.post('/sites', payload);
         const newSite = {
           id: res.data?.id || `site_${Date.now()}`,
           assignedEmployeesCount: 0,
-          ...formData,
+          ...payload,
         };
         setSites((prev) => [...prev, newSite]);
-        showToast(`Site ${formData.name} added successfully!`);
+        showToast(`Site ${payload.name} created with tagged location!`);
       }
       setModalOpen(false);
     } catch (err) {
@@ -169,7 +369,7 @@ const Sites = () => {
       const newSite = {
         id: editingSite ? editingSite.id : `site_${Date.now()}`,
         assignedEmployeesCount: editingSite?.assignedEmployeesCount || 0,
-        ...formData,
+        ...payload,
       };
       if (editingSite) {
         setSites((prev) => prev.map((s) => (s.id === editingSite.id ? newSite : s)));
@@ -279,7 +479,22 @@ const Sites = () => {
                     <span className="flex items-center gap-1.5">
                       <Shield className="w-3.5 h-3.5" /> Allowed Radius:
                     </span>
-                    <span className="font-bold text-emerald-600">{site.attendanceRadius}m</span>
+                    <span className="font-bold text-emerald-600">{site.attendanceRadius || 500}m</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-500 pt-1.5 border-t border-slate-100">
+                    <span className="flex items-center gap-1.5">
+                      <Navigation className="w-3.5 h-3.5 text-brand-600" /> GPS Tag:
+                    </span>
+                    <a
+                      href={`https://www.google.com/maps?q=${site.latitude},${site.longitude}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono font-bold text-brand-600 hover:text-brand-700 hover:underline flex items-center gap-1"
+                      title="View pinned location on Google Maps"
+                    >
+                      <span>{Number(site.latitude || 0).toFixed(4)}, {Number(site.longitude || 0).toFixed(4)}</span>
+                      <ExternalLink className="w-3 h-3 text-slate-400" />
+                    </a>
                   </div>
                 </div>
 
@@ -325,35 +540,203 @@ const Sites = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Site Name"
-              placeholder="e.g. Pune - Phase 1"
+              placeholder="e.g. Surat ST-1 / Pune - Phase 1"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               required
             />
             <Input
               label="Site Code"
-              placeholder="ADN-PS-001"
+              placeholder="ADN-SITE-001"
               value={formData.code}
               onChange={(e) => setFormData({ ...formData, code: e.target.value })}
               required
             />
           </div>
 
-          <Input
-            label="Address"
-            placeholder="Hinjewadi, Pune, Maharashtra"
-            value={formData.address}
-            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-            required
-          />
+          {/* Unified Location & Address Search Bar (Single Search Option) */}
+          <div className="space-y-2 pt-1 border-t border-slate-100">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+              <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <MapPin className="w-4 h-4 text-rose-500" />
+                <span>Site Location & Address</span>
+              </label>
 
+              <button
+                type="button"
+                onClick={handlePinCurrentLocation}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1 rounded-lg border border-brand-200 transition-colors w-fit shadow-2xs"
+              >
+                <LocateFixed className="w-3.5 h-3.5 text-brand-600" />
+                <span>Pin My Current GPS</span>
+              </button>
+            </div>
+
+            {/* Single Location Search Input */}
+            <div className="relative">
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    {searching ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-500" />
+                    ) : (
+                      <Search className="w-3.5 h-3.5 text-slate-400" />
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search or enter location (e.g. Mission Road, Adajan Surat, Hinjewadi Pune...)"
+                    value={searchLocationQuery}
+                    onChange={(e) => handleQueryChange(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+                        handleSearchLocation(searchLocationQuery, true);
+                      }
+                    }}
+                    onFocus={() => {
+                      if (searchResults.length > 0) setShowResultsDropdown(true);
+                    }}
+                    required
+                    className="w-full pl-9 pr-8 py-2.5 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 shadow-2xs placeholder:text-slate-400 text-slate-900 font-medium"
+                  />
+                  {searchLocationQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchLocationQuery('');
+                        setFormData((prev) => ({ ...prev, address: '' }));
+                        setSearchResults([]);
+                        setShowResultsDropdown(false);
+                      }}
+                      className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="primary"
+                  onClick={() => {
+                    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+                    handleSearchLocation(searchLocationQuery, true);
+                  }}
+                  className="bg-brand-500 hover:bg-brand-600 text-xs font-bold px-3.5 py-2.5 rounded-xl flex-shrink-0"
+                >
+                  Search & Navigate
+                </Button>
+              </div>
+
+              {/* Suggestions Dropdown */}
+              {showResultsDropdown && searchResults.length > 0 && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-[1100] bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
+                  <div className="px-3 py-1.5 bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-wider flex justify-between items-center">
+                    <span>Matching Locations:</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowResultsDropdown(false)}
+                      className="text-slate-400 hover:text-slate-600 text-[11px]"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                  {searchResults.slice(0, 2).map((res, idx) => (
+                    <button
+                      key={`${res.name}-${idx}`}
+                      type="button"
+                      onClick={() => selectLocation(res, searchLocationQuery)}
+                      className="w-full text-left px-3 py-2.5 hover:bg-brand-50/80 transition-colors flex items-start gap-2.5 group"
+                    >
+                      <MapPin className="w-4 h-4 text-rose-500 flex-shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <p className="text-xs font-bold text-slate-900 truncate group-hover:text-brand-600">
+                            {res.name}
+                          </p>
+                          <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded whitespace-nowrap">
+                            {res.latitude.toFixed(4)}, {res.longitude.toFixed(4)}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                          {res.address}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Embedded Leaflet Map with draggable marker & 500m geofence */}
+            <div className="rounded-xl overflow-hidden border border-slate-300 shadow-inner">
+              <InteractiveMap
+                height="240px"
+                siteLocation={{
+                  name: formData.name || 'Tagged Site',
+                  latitude: Number(formData.latitude) || 21.1926,
+                  longitude: Number(formData.longitude) || 72.7997,
+                  attendanceRadius: Number(formData.attendanceRadius) || 500,
+                }}
+                geofenceRadius={Number(formData.attendanceRadius) || 500}
+                showGeofence={true}
+                isPicker={true}
+                onLocationSelect={(coords) => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    latitude: coords.latitude,
+                    longitude: coords.longitude,
+                  }));
+                }}
+              />
+            </div>
+
+            {/* Tagged Coordinates Badge & Geofence Feedback */}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                <span className="text-slate-500 font-medium">GPS Coordinates:</span>
+                <span className="font-mono font-bold text-slate-900">
+                  {Number(formData.latitude || 0).toFixed(6)}, {Number(formData.longitude || 0).toFixed(6)}
+                </span>
+              </div>
+              <span className="text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md flex items-center gap-1">
+                <Shield className="w-3 h-3 text-emerald-600" />
+                {formData.attendanceRadius || 500}m Geofence Perimeter
+              </span>
+            </div>
+
+            {/* Quick Presets */}
+            <div className="flex items-center gap-1.5 pt-0.5 overflow-x-auto text-[11px]">
+              <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider flex-shrink-0">
+                Quick Pins:
+              </span>
+              {PRESET_LOCATIONS.map((preset) => (
+                <button
+                  key={preset.name}
+                  type="button"
+                  onClick={() => applyPresetLocation(preset)}
+                  className="px-2 py-0.5 rounded-md bg-white border border-slate-200 hover:border-brand-500 hover:text-brand-600 hover:bg-brand-50/50 text-slate-600 font-medium whitespace-nowrap transition-colors shadow-2xs text-[11px]"
+                >
+                  {preset.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Coordinate input boxes (two-way synced with map) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Latitude"
               type="number"
               step="any"
               value={formData.latitude}
-              onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })}
+              onChange={(e) =>
+                setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })
+              }
               required
             />
             <Input
@@ -361,7 +744,9 @@ const Sites = () => {
               type="number"
               step="any"
               value={formData.longitude}
-              onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })}
+              onChange={(e) =>
+                setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })
+              }
               required
             />
           </div>

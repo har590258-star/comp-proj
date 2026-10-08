@@ -11,14 +11,18 @@ async def get_attendance_report(
     toDate: Optional[str] = Query(None),
     siteId: Optional[str] = Query(None),
     employeeId: Optional[str] = Query(None),
-    status: Optional[str] = Query(None)
+    status: Optional[str] = Query(None),
+    month: Optional[int] = Query(None),
+    year: Optional[int] = Query(None)
 ):
     filters = AttendanceReportFilter(
         fromDate=fromDate,
         toDate=toDate,
         siteId=siteId,
         employeeId=employeeId,
-        status=status
+        status=status,
+        month=month,
+        year=year
     )
     return await report_service.get_attendance_report(filters)
 
@@ -28,17 +32,24 @@ async def export_attendance_excel(
     toDate: Optional[str] = Query(None),
     siteId: Optional[str] = Query(None),
     employeeId: Optional[str] = Query(None),
-    status: Optional[str] = Query(None)
+    status: Optional[str] = Query(None),
+    month: Optional[int] = Query(None),
+    year: Optional[int] = Query(None)
 ):
     filters = AttendanceReportFilter(
         fromDate=fromDate,
         toDate=toDate,
         siteId=siteId,
         employeeId=employeeId,
-        status=status
+        status=status,
+        month=month,
+        year=year
     )
     excel_bytes = await report_service.generate_excel_bytes(filters)
-    filename = f"Adani_Attendance_Report_{fromDate or 'All'}_{toDate or 'All'}.xlsx"
+    # Human-friendly filename with target month/year
+    m_val = month or (int(toDate.split("-")[1]) if toDate else None) or (int(fromDate.split("-")[1]) if fromDate else 10)
+    y_val = year or (int(toDate.split("-")[0]) if toDate else None) or (int(fromDate.split("-")[0]) if fromDate else 2026)
+    filename = f"b4S_Attendance_Muster_Roll_{y_val}_{m_val:02d}.xlsx"
     return Response(
         content=excel_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

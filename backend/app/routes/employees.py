@@ -7,6 +7,42 @@ from app.core.security import hash_password
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
 
+async def populate_assigned_sites_info(item: dict) -> dict:
+    if "_id" in item:
+        item["_id"] = str(item["_id"])
+    sites_col = get_collection("sites")
+    site_ids = item.get("assignedSiteIds") or []
+    if not site_ids and item.get("assignedSiteId"):
+        site_ids = [item["assignedSiteId"]]
+    
+    # Remove duplicates preserving order
+    seen = set()
+    clean_site_ids = [s for s in site_ids if s and not (s in seen or seen.add(s))]
+
+    site_docs = []
+    site_names = []
+    if clean_site_ids and sites_col is not None:
+        raw_sites = await sites_col.find({"$or": [{"id": {"$in": clean_site_ids}}, {"_id": {"$in": clean_site_ids}}]}).to_list(50)
+        # Sort in the order of clean_site_ids
+        site_map = {str(s.get("id", s.get("_id"))): s for s in raw_sites}
+        for s_id in clean_site_ids:
+            if s_id in site_map:
+                s_data = dict(site_map[s_id])
+                s_data["id"] = str(s_data.get("id", s_data.get("_id")))
+                if "_id" in s_data:
+                    s_data["_id"] = str(s_data["_id"])
+                site_docs.append(s_data)
+                site_names.append(s_data.get("name", s_id))
+
+    item["assignedSiteIds"] = clean_site_ids
+    item["assignedSiteNames"] = site_names if site_names else (item.get("assignedSiteNames") or [])
+    item["assignedSites"] = site_docs
+    if clean_site_ids:
+        item["assignedSiteId"] = clean_site_ids[0]
+        if site_names:
+            item["assignedSiteName"] = site_names[0]
+    return item
+
 @router.get("", response_model=List[EmployeeOut])
 async def list_employees(
     search: Optional[str] = Query(None, description="Search by name, employeeId or phone"),
@@ -22,7 +58,10 @@ async def list_employees(
             {"phone": search}
         ]
     if siteId and siteId != "all":
-        query["assignedSiteId"] = siteId
+        query["$or"] = [
+            {"assignedSiteId": siteId},
+            {"assignedSiteIds": siteId}
+        ]
     if status and status != "all":
         query["status"] = status
 
@@ -31,6 +70,7 @@ async def list_employees(
     for d in docs:
         item = dict(d)
         item["id"] = str(item.get("_id", item.get("id")))
+        item = await populate_assigned_sites_info(item)
         results.append(item)
     return results
 
@@ -47,6 +87,10 @@ async def create_employee(emp: EmployeeCreate):
     doc = emp.dict()
     doc["id"] = new_id
     doc["_id"] = new_id
+
+    # Handle multiple site ids & names
+    doc = await populate_assigned_sites_info(doc)
+
     await emp_col.insert_one(doc)
 
     # Also create user account for login
@@ -59,28 +103,41 @@ async def create_employee(emp: EmployeeCreate):
         "phone": emp.phone,
         "role": emp.role,
         "employeeId": emp.employeeId,
-        "assignedSiteId": emp.assignedSiteId,
-        "assignedSiteName": emp.assignedSiteName,
+        "assignedSiteId": doc.get("assignedSiteId"),
+        "assignedSiteName": doc.get("assignedSiteName"),
+        "assignedSiteIds": doc.get("assignedSiteIds", []),
+        "assignedSiteNames": doc.get("assignedSiteNames", []),
         "status": emp.status
     }
     await users_col.insert_one(user_doc)
     return doc
 
+from bson import ObjectId
+
+def build_emp_query(identifier: str):
+    conds = [{"id": identifier}, {"employeeId": identifier}]
+    if ObjectId.is_valid(identifier):
+        conds.append({"_id": ObjectId(identifier)})
+    conds.append({"_id": identifier})
+    return {"$or": conds}
+
 @router.get("/{id}", response_model=EmployeeOut)
 async def get_employee(id: str):
     col = get_collection("employees")
-    doc = await col.find_one({"$or": [{"id": id}, {"_id": id}, {"employeeId": id}]})
+    doc = await col.find_one(build_emp_query(id))
     if not doc:
         raise HTTPException(status_code=404, detail="Employee not found")
-    doc["id"] = str(doc.get("_id", doc.get("id")))
-    return doc
+    item = dict(doc)
+    item["id"] = str(item.get("_id", item.get("id")))
+    item = await populate_assigned_sites_info(item)
+    return item
 
 @router.put("/{id}", response_model=EmployeeOut)
 async def update_employee(id: str, updates: EmployeeUpdate):
     emp_col = get_collection("employees")
     users_col = get_collection("users")
 
-    existing = await emp_col.find_one({"$or": [{"id": id}, {"_id": id}, {"employeeId": id}]})
+    existing = await emp_col.find_one(build_emp_query(id))
     if not existing:
         raise HTTPException(status_code=404, detail="Employee not found")
 
@@ -88,31 +145,54 @@ async def update_employee(id: str, updates: EmployeeUpdate):
     if "password" in update_dict:
         del update_dict["password"]
 
-    target_id = existing.get("id", id)
-    await emp_col.update_one({"$or": [{"id": target_id}, {"_id": target_id}]}, {"$set": update_dict})
+    # If assignedSiteIds updated, sync names and primary site
+    if "assignedSiteIds" in update_dict:
+        site_ids = update_dict.get("assignedSiteIds") or []
+        temp_dict = {"assignedSiteIds": site_ids}
+        temp_dict = await populate_assigned_sites_info(temp_dict)
+        update_dict["assignedSiteIds"] = temp_dict["assignedSiteIds"]
+        update_dict["assignedSiteNames"] = temp_dict["assignedSiteNames"]
+        if temp_dict["assignedSiteIds"]:
+            update_dict["assignedSiteId"] = temp_dict["assignedSiteId"]
+            update_dict["assignedSiteName"] = temp_dict["assignedSiteName"]
+        else:
+            update_dict["assignedSiteId"] = None
+            update_dict["assignedSiteName"] = None
 
-    # Sync with users
-    user_updates = {k: v for k, v in update_dict.items() if k in ["name", "email", "phone", "role", "assignedSiteId", "assignedSiteName", "status"]}
+    target_id = existing.get("id", id)
+    match_query = build_emp_query(str(target_id))
+    await emp_col.update_one(match_query, {"$set": update_dict})
+
+    # Sync with users collection
+    user_sync_keys = [
+        "name", "email", "phone", "role", "status",
+        "assignedSiteId", "assignedSiteName", "assignedSiteIds", "assignedSiteNames"
+    ]
+    user_updates = {k: v for k, v in update_dict.items() if k in user_sync_keys}
     if updates.password:
         user_updates["password"] = hash_password(updates.password)
-    await users_col.update_one({"employeeId": existing.get("employeeId")}, {"$set": user_updates})
+    if user_updates:
+        await users_col.update_one({"employeeId": existing.get("employeeId")}, {"$set": user_updates})
 
-    updated = await emp_col.find_one({"$or": [{"id": target_id}, {"_id": target_id}]})
-    updated["id"] = str(updated.get("_id", updated.get("id")))
-    return updated
+    updated = await emp_col.find_one(match_query)
+    updated_dict = dict(updated)
+    updated_dict["id"] = str(updated_dict.get("_id", updated_dict.get("id")))
+    updated_dict = await populate_assigned_sites_info(updated_dict)
+    return updated_dict
 
 @router.delete("/{id}")
 async def delete_employee(id: str):
     emp_col = get_collection("employees")
     users_col = get_collection("users")
 
-    existing = await emp_col.find_one({"$or": [{"id": id}, {"_id": id}, {"employeeId": id}]})
+    existing = await emp_col.find_one(build_emp_query(id))
     if not existing:
         raise HTTPException(status_code=404, detail="Employee not found")
 
-    target_id = existing.get("id", id)
     emp_id = existing.get("employeeId")
-    await emp_col.delete_one({"$or": [{"id": target_id}, {"_id": target_id}]})
+    target_id = existing.get("id", id)
+    match_query = build_emp_query(str(target_id))
+    await emp_col.delete_one(match_query)
     await users_col.delete_one({"employeeId": emp_id})
 
     return {"success": True, "message": f"Employee {emp_id} deleted successfully"}

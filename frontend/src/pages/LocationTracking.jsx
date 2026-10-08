@@ -25,6 +25,7 @@ import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import InteractiveMap from '../components/maps/InteractiveMap';
 import { useToast } from '../components/ui/Toast';
+import ErrorBoundary from '../components/ui/ErrorBoundary';
 
 const LocationTracking = () => {
   const navigate = useNavigate();
@@ -46,13 +47,13 @@ const LocationTracking = () => {
   const [teamLoading, setTeamLoading] = useState(false);
   const [showGeofence, setShowGeofence] = useState(true);
 
-  // Technician / active telemetry state
+  // Technician / active telemetry state (initialize with authentic Surat ST-1 default coordinates)
   const [locationData, setLocationData] = useState({
-    latitude: coordinates.latitude,
-    longitude: coordinates.longitude,
+    latitude: 21.1926,
+    longitude: 72.7997,
     updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    siteName: user?.assignedSiteName || 'Field Operations',
-    siteAddress: 'Active Field Deployment Zone',
+    siteName: 'Surat ST-1',
+    siteAddress: 'Adajan, Surat, Gujarat',
   });
 
   const [locationLogs, setLocationLogs] = useState([]);
@@ -90,6 +91,20 @@ const LocationTracking = () => {
       const res = await api.get('/locations/team');
       if (Array.isArray(res.data)) {
         setTeamMembers(res.data);
+        if (selectedEmpId === 'ALL') {
+          const firstWithLoc = res.data.find(
+            (m) => m && m.hasLocation && m.latitude != null && m.longitude != null && !isNaN(Number(m.latitude))
+          );
+          if (firstWithLoc) {
+            setLocationData({
+              latitude: Number(firstWithLoc.latitude),
+              longitude: Number(firstWithLoc.longitude),
+              updatedAt: firstWithLoc.lastUpdated || '--',
+              siteName: firstWithLoc.siteName || 'All Field Sites',
+              siteAddress: 'Substation Cluster',
+            });
+          }
+        }
       }
     } catch (err) {
       console.warn('Failed to load team locations:', err);
@@ -159,11 +174,13 @@ const LocationTracking = () => {
     if (!isAdmin) return;
 
     if (selectedEmpId === 'ALL') {
-      const withLoc = teamMembers.find((m) => m.hasLocation);
+      const withLoc = teamMembers.find(
+        (m) => m && m.hasLocation && m.latitude != null && m.longitude != null && !isNaN(Number(m.latitude))
+      );
       if (withLoc) {
         setLocationData({
-          latitude: withLoc.latitude,
-          longitude: withLoc.longitude,
+          latitude: Number(withLoc.latitude),
+          longitude: Number(withLoc.longitude),
           updatedAt: withLoc.lastUpdated || '--',
           siteName: withLoc.siteName || 'All Field Sites',
           siteAddress: 'Substation Cluster',
@@ -171,11 +188,11 @@ const LocationTracking = () => {
       }
       setLocationLogs([]);
     } else {
-      const emp = teamMembers.find((m) => m.employeeId === selectedEmpId);
-      if (emp) {
+      const emp = teamMembers.find((m) => m && m.employeeId === selectedEmpId);
+      if (emp && emp.latitude != null && emp.longitude != null && !isNaN(Number(emp.latitude))) {
         setLocationData({
-          latitude: emp.latitude,
-          longitude: emp.longitude,
+          latitude: Number(emp.latitude),
+          longitude: Number(emp.longitude),
           updatedAt: emp.lastUpdated || '--',
           siteName: emp.siteName || 'Assigned Site',
           siteAddress: 'Substation Deployment',
@@ -222,11 +239,15 @@ const LocationTracking = () => {
 
   // Filter technicians
   const filteredTechnicians = useMemo(() => {
+    if (!Array.isArray(teamMembers)) return [];
     return teamMembers.filter((m) => {
-      const matchSearch =
-        m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.employeeId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (m.siteName && m.siteName.toLowerCase().includes(searchQuery.toLowerCase()));
+      if (!m) return false;
+      const name = (m.name || '').toLowerCase();
+      const empId = (m.employeeId || '').toLowerCase();
+      const sName = (m.siteName || '').toLowerCase();
+      const query = (searchQuery || '').trim().toLowerCase();
+
+      const matchSearch = !query || name.includes(query) || empId.includes(query) || sName.includes(query);
 
       if (!matchSearch) return false;
 
@@ -236,33 +257,33 @@ const LocationTracking = () => {
     });
   }, [teamMembers, searchQuery, statusFilter]);
 
-  const activeCount = teamMembers.filter((m) => m.status === 'Present' || m.hasLocation).length;
-  const offlineCount = teamMembers.length - activeCount;
+  const activeCount = Array.isArray(teamMembers) ? teamMembers.filter((m) => m && (m.status === 'Present' || m.hasLocation)).length : 0;
+  const offlineCount = Array.isArray(teamMembers) ? teamMembers.length - activeCount : 0;
 
   // Additional markers for map
   const additionalMarkers = useMemo(() => {
-    if (!isAdmin) return [];
+    if (!isAdmin || !Array.isArray(teamMembers)) return [];
     if (selectedEmpId === 'ALL') {
       return teamMembers
-        .filter((m) => m.hasLocation)
+        .filter((m) => m && m.hasLocation && m.latitude != null && m.longitude != null && !isNaN(Number(m.latitude)) && !isNaN(Number(m.longitude)))
         .map((m) => ({
-          latitude: m.latitude,
-          longitude: m.longitude,
-          title: m.name,
-          subtitle: `${m.siteName || 'Field'} • ${m.status}`,
+          latitude: Number(m.latitude),
+          longitude: Number(m.longitude),
+          title: m.name || m.employeeId || 'Technician',
+          subtitle: `${m.siteName || 'Field'} • ${m.status || 'Active'}`,
           time: m.lastUpdated,
           badge: m.status,
           color: m.status === 'Present' ? '#10B981' : '#64748B',
         }));
     } else {
-      const emp = teamMembers.find((m) => m.employeeId === selectedEmpId);
-      if (emp && emp.hasLocation) {
+      const emp = teamMembers.find((m) => m && m.employeeId === selectedEmpId);
+      if (emp && emp.hasLocation && emp.latitude != null && emp.longitude != null && !isNaN(Number(emp.latitude)) && !isNaN(Number(emp.longitude))) {
         return [
           {
-            latitude: emp.latitude,
-            longitude: emp.longitude,
-            title: emp.name,
-            subtitle: `${emp.siteName || 'Field'} • ${emp.status}`,
+            latitude: Number(emp.latitude),
+            longitude: Number(emp.longitude),
+            title: emp.name || emp.employeeId || 'Technician',
+            subtitle: `${emp.siteName || 'Field'} • ${emp.status || 'Active'}`,
             time: emp.lastUpdated,
             badge: emp.status,
             color: '#1E63F0',
@@ -274,8 +295,8 @@ const LocationTracking = () => {
   }, [isAdmin, selectedEmpId, teamMembers]);
 
   const currentSelectedEmp = useMemo(() => {
-    if (!isAdmin || selectedEmpId === 'ALL') return null;
-    return teamMembers.find((m) => m.employeeId === selectedEmpId);
+    if (!isAdmin || selectedEmpId === 'ALL' || !Array.isArray(teamMembers)) return null;
+    return teamMembers.find((m) => m && m.employeeId === selectedEmpId);
   }, [isAdmin, selectedEmpId, teamMembers]);
 
   return (
@@ -431,8 +452,9 @@ const LocationTracking = () => {
                           {/* Avatar Circle with Status Indicator */}
                           <div className="relative">
                             <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center border border-slate-200">
-                              {emp.name
+                              {(emp.name || 'Technician')
                                 .split(' ')
+                                .filter(Boolean)
                                 .map((n) => n[0])
                                 .join('')
                                 .slice(0, 2)
@@ -539,30 +561,32 @@ const LocationTracking = () => {
               )}
             </div>
 
-            <InteractiveMap
-              userLocation={
-                isAdmin
-                  ? locationData.latitude
-                    ? {
-                        latitude: locationData.latitude,
-                        longitude: locationData.longitude,
-                        title: currentSelectedEmp ? currentSelectedEmp.name : 'Active Technician',
-                      }
-                    : null
-                  : coordinates
-              }
-              siteLocation={{
-                latitude: locationData.latitude,
-                longitude: locationData.longitude,
-                name: locationData.siteName,
-                address: locationData.siteAddress,
-              }}
-              geofenceRadius={500}
-              showGeofence={showGeofence && (!isAdmin || selectedEmpId !== 'ALL')}
-              height="510px"
-              showRoute={false}
-              additionalMarkers={additionalMarkers}
-            />
+            <ErrorBoundary title="Radar Map View">
+              <InteractiveMap
+                userLocation={
+                  isAdmin
+                    ? locationData.latitude
+                      ? {
+                          latitude: locationData.latitude,
+                          longitude: locationData.longitude,
+                          title: currentSelectedEmp ? currentSelectedEmp.name : 'Active Technician',
+                        }
+                      : null
+                    : coordinates
+                }
+                siteLocation={{
+                  latitude: locationData.latitude,
+                  longitude: locationData.longitude,
+                  name: locationData.siteName,
+                  address: locationData.siteAddress,
+                }}
+                geofenceRadius={500}
+                showGeofence={showGeofence && (!isAdmin || selectedEmpId !== 'ALL')}
+                height="510px"
+                showRoute={false}
+                additionalMarkers={additionalMarkers}
+              />
+            </ErrorBoundary>
           </div>
 
           {/* Docked Telemetry HUD (Directly Aligned beneath Map) */}

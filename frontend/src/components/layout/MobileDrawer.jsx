@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { X, LayoutDashboard, CheckCircle, LogOut as LogOutIcon, Calendar, Compass, Building2, Users, FileBarChart2, Settings, ShieldCheck, Wrench } from 'lucide-react';
+import { X, LayoutDashboard, CheckCircle, LogOut as LogOutIcon, Calendar, Compass, Building2, Users, FileBarChart2, Settings, ShieldCheck, Wrench, Download } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import HolidayModal from '../ui/HolidayModal';
 
 const MobileDrawer = ({ isOpen, onClose }) => {
   const { user, isAdmin, switchRole, logout } = useAuth();
+  const [showHolidayModal, setShowHolidayModal] = useState(false);
 
   if (!isOpen) return null;
 
@@ -14,7 +16,7 @@ const MobileDrawer = ({ isOpen, onClose }) => {
     { to: '/check-out', label: 'Check Out', icon: LogOutIcon },
     { to: '/attendance', label: "Today's Status", icon: Calendar },
     { to: '/history', label: 'Attendance History', icon: Calendar },
-    { to: '/site', label: 'Assigned Site', icon: Building2 },
+    { to: '/site', label: 'Assigned Sites', icon: Building2 },
     { to: '/settings', label: 'Settings', icon: Settings },
   ];
 
@@ -100,6 +102,23 @@ const MobileDrawer = ({ isOpen, onClose }) => {
           })}
         </div>
 
+        {/* Holidays 2026 Button */}
+        <div className="px-3 pb-2 pt-1 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={() => setShowHolidayModal(true)}
+            className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-brand-50 hover:text-brand-700 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <Calendar className="w-4 h-4 text-brand-600" />
+              <span>Holidays 2026 (PDF)</span>
+            </div>
+            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-brand-200 text-brand-800">
+              Download
+            </span>
+          </button>
+        </div>
+
         {/* Logout */}
         <div className="p-4 border-t border-slate-100">
           <button
@@ -114,6 +133,11 @@ const MobileDrawer = ({ isOpen, onClose }) => {
           </button>
         </div>
       </div>
+
+      <HolidayModal
+        isOpen={showHolidayModal}
+        onClose={() => setShowHolidayModal(false)}
+      />
     </div>
   );
 };

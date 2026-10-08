@@ -16,6 +16,7 @@ import Employees from '../pages/Employees';
 import Sites from '../pages/Sites';
 import Reports from '../pages/Reports';
 import Settings from '../pages/Settings';
+import ErrorBoundary from '../components/ui/ErrorBoundary';
 
 // Protected Route wrapper with role authorization
 const ProtectedRoute = ({ children, requireAdmin = false }) => {
@@ -29,7 +30,7 @@ const ProtectedRoute = ({ children, requireAdmin = false }) => {
     return <Navigate to="/dashboard" replace />;
   }
 
-  return children;
+  return <ErrorBoundary>{children}</ErrorBoundary>;
 };
 
 const AppRoutes = () => {

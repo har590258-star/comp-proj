@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 class GeoPoint(BaseModel):
     latitude: float
@@ -43,10 +43,20 @@ class TodayStatusOut(BaseModel):
     status: str # "Present", "Absent", "Checked Out", "Not Checked In"
     employeeId: str
     employeeName: str
+    siteId: Optional[str] = None
     siteName: Optional[str] = None
+    assignedSiteId: Optional[str] = None
+    assignedSiteName: Optional[str] = None
+    assignedSiteIds: Optional[List[str]] = Field(default_factory=list)
+    assignedSiteNames: Optional[List[str]] = Field(default_factory=list)
+    assignedSite: Optional[Dict[str, Any]] = None
+    assignedSites: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    siteLatitude: Optional[float] = None
+    siteLongitude: Optional[float] = None
     date: str
     checkInTime: Optional[str] = None
     checkOutTime: Optional[str] = None
     checkInLocation: Optional[GeoPoint] = None
     checkOutLocation: Optional[GeoPoint] = None
     workingHours: Optional[str] = None
+    createdAt: Optional[str] = None

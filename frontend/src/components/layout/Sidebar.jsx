@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -14,11 +14,14 @@ import {
   Compass,
   Radio,
   ChevronRight,
+  Download,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import HolidayModal from '../ui/HolidayModal';
 
 const Sidebar = () => {
   const { user, isAdmin } = useAuth();
+  const [showHolidayModal, setShowHolidayModal] = useState(false);
 
   const technicianLinks = [
     { to: '/dashboard', label: 'Home / Dashboard', icon: LayoutDashboard },
@@ -26,7 +29,7 @@ const Sidebar = () => {
     { to: '/check-out', label: 'Shift Check Out', icon: LogOutIcon },
     { to: '/attendance', label: "Today's Status", icon: Clock },
     { to: '/history', label: 'Attendance History', icon: Calendar },
-    { to: '/site', label: 'Assigned Site', icon: Building2 },
+    { to: '/site', label: 'Assigned Sites', icon: Building2 },
   ];
 
   const adminLinks = [
@@ -88,7 +91,21 @@ const Sidebar = () => {
       </div>
 
       {/* User Site Info Card at bottom of sidebar */}
-      <div className="pt-4 border-t border-slate-200">
+      <div className="pt-3 border-t border-slate-200 space-y-3">
+        <button
+          type="button"
+          onClick={() => setShowHolidayModal(true)}
+          className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-50 hover:bg-brand-50 hover:text-brand-700 border border-slate-200 transition-colors cursor-pointer group"
+        >
+          <div className="flex items-center gap-2.5">
+            <Calendar className="w-4 h-4 text-brand-600 group-hover:scale-110 transition-transform" />
+            <span>Holidays 2026 (PDF)</span>
+          </div>
+          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-brand-100 text-brand-800">
+            10 Days
+          </span>
+        </button>
+
         <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between mb-2">
             <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-100/90 px-3 py-1 rounded-full">
@@ -105,6 +122,11 @@ const Sidebar = () => {
           </p>
         </div>
       </div>
+
+      <HolidayModal
+        isOpen={showHolidayModal}
+        onClose={() => setShowHolidayModal(false)}
+      />
     </aside>
   );
 };

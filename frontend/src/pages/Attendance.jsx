@@ -18,10 +18,13 @@ import api from '../services/api';
 import Card from '../components/ui/Card';
 import StatusBadge from '../components/ui/StatusBadge';
 import Button from '../components/ui/Button';
+import HolidayModal, { downloadHolidayPdfFile } from '../components/ui/HolidayModal';
+import { Download } from 'lucide-react';
 
 const Attendance = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [showHolidayModal, setShowHolidayModal] = useState(false);
 
   const [details, setDetails] = useState({
     status: 'Not Checked In',
@@ -35,9 +38,67 @@ const Attendance = () => {
     workingHours: '--',
   });
 
+  const [elapsedFormatted, setElapsedFormatted] = useState('--');
+
   useEffect(() => {
     fetchTodayData();
   }, [user]);
+
+  // Live timer for hours worked after check-in
+  useEffect(() => {
+    if (details.status !== 'Present' || !details.checkInTime || details.checkInTime === '--') {
+      if (details.checkOutTime && details.checkOutTime !== '--') {
+        setElapsedFormatted(details.workingHours || 'Completed');
+      } else {
+        setElapsedFormatted('--');
+      }
+      return;
+    }
+
+    const updateTimer = () => {
+      try {
+        const timeStr = details.checkInTime;
+        const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+        if (!match) return;
+        let [_, h, m, meridiem] = match;
+        let hours = parseInt(h, 10);
+        const mins = parseInt(m, 10);
+        if (meridiem) {
+          meridiem = meridiem.toUpperCase();
+          if (meridiem === 'PM' && hours < 12) hours += 12;
+          if (meridiem === 'AM' && hours === 12) hours = 0;
+        }
+
+        const checkInDate = new Date();
+        if (details.date) {
+          const parts = details.date.split('-');
+          if (parts.length === 3) {
+            checkInDate.setFullYear(
+              parseInt(parts[0], 10),
+              parseInt(parts[1], 10) - 1,
+              parseInt(parts[2], 10)
+            );
+          }
+        }
+        checkInDate.setHours(hours, mins, 0, 0);
+
+        const now = new Date();
+        const diffSec = Math.max(0, Math.floor((now.getTime() - checkInDate.getTime()) / 1000));
+        const hrs = Math.floor(diffSec / 3600);
+        const remMin = Math.floor((diffSec % 3600) / 60);
+        const remSec = diffSec % 60;
+        setElapsedFormatted(
+          `${String(hrs).padStart(2, '0')}h ${String(remMin).padStart(2, '0')}m ${String(remSec).padStart(2, '0')}s`
+        );
+      } catch (err) {
+        console.error('Attendance timer error:', err);
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [details.status, details.checkInTime, details.date, details.checkOutTime, details.workingHours]);
 
   const fetchTodayData = async () => {
     try {
@@ -94,14 +155,25 @@ const Attendance = () => {
           </div>
         </div>
 
-        <Button
-          variant="outline"
-          size="md"
-          onClick={() => navigate('/history')}
-          className="bg-white text-sm font-bold px-4 py-2"
-        >
-          View Full History
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="md"
+            onClick={() => setShowHolidayModal(true)}
+            className="bg-white text-sm font-bold px-4 py-2 border-brand-200 text-brand-700 hover:bg-brand-50 flex items-center gap-2"
+          >
+            <Calendar className="w-4 h-4 text-brand-600" />
+            <span>Holidays 2026 (PDF)</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="md"
+            onClick={() => navigate('/history')}
+            className="bg-white text-sm font-bold px-4 py-2"
+          >
+            View Full History
+          </Button>
+        </div>
       </div>
 
       {/* Two Column Layout on Desktop */}
@@ -118,9 +190,18 @@ const Attendance = () => {
                 <h3 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
                   {details.status}
                 </h3>
-                <div className="mt-2 space-y-1 text-sm sm:text-base text-emerald-100 font-semibold">
+                <div className="mt-2 space-y-1.5 text-sm sm:text-base text-emerald-100 font-semibold">
                   <p>Checked In: {details.checkInTime || '--'}</p>
                   <p>Checked Out: {details.checkOutTime || '--'}</p>
+                  {details.status === 'Present' && (
+                    <div className="flex items-center gap-2 pt-1 text-white">
+                      <span className="w-2 h-2 rounded-full bg-emerald-300 animate-ping" />
+                      <span>Hours Worked:</span>
+                      <span className="font-mono font-black text-white bg-black/25 px-2.5 py-0.5 rounded-lg tracking-wider">
+                        {elapsedFormatted}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -177,13 +258,22 @@ const Attendance = () => {
               <StatusBadge status={details.status} />
             </div>
 
-            {/* Working Hours */}
+            {/* Working Hours with Live Timer */}
             <div className="flex items-center justify-between p-4 sm:p-5 bg-slate-50/60">
               <div className="flex items-center gap-3 text-slate-600">
                 <Clock className="w-4 h-4 text-brand-500" />
                 <span className="text-sm font-semibold text-slate-800">Working Hours</span>
               </div>
-              <span className="text-base font-bold text-brand-600">{details.workingHours}</span>
+              <span className="text-base font-bold text-brand-600 font-mono flex items-center gap-2">
+                {details.status === 'Present' ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-emerald-700 font-black">{elapsedFormatted} (Live)</span>
+                  </>
+                ) : (
+                  details.workingHours
+                )}
+              </span>
             </div>
           </Card>
         </div>
@@ -239,10 +329,25 @@ const Attendance = () => {
               >
                 View Assigned Site Details
               </Button>
+              <Button
+                variant="outline"
+                fullWidth
+                size="md"
+                onClick={() => setShowHolidayModal(true)}
+                className="text-xs font-semibold flex items-center justify-center gap-2 border-emerald-300 text-emerald-800 bg-emerald-50/80 hover:bg-emerald-100"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Holiday Calendar 2026 (PDF)</span>
+              </Button>
             </div>
           </Card>
         </div>
       </div>
+
+      <HolidayModal
+        isOpen={showHolidayModal}
+        onClose={() => setShowHolidayModal(false)}
+      />
     </div>
   );
 };

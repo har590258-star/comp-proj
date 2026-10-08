@@ -22,20 +22,78 @@ class AttendanceService:
             "date": today_str
         })
         
+        # Gather all assigned site IDs & names
+        assigned_site_ids = list(emp.get("assignedSiteIds") or []) if emp else []
+        if emp and emp.get("assignedSiteId") and emp.get("assignedSiteId") not in assigned_site_ids:
+            assigned_site_ids.insert(0, emp.get("assignedSiteId"))
+
+        assigned_site_names = list(emp.get("assignedSiteNames") or []) if emp else []
+        if emp and emp.get("assignedSiteName") and emp.get("assignedSiteName") not in assigned_site_names:
+            assigned_site_names.insert(0, emp.get("assignedSiteName"))
+
+        assigned_site_id = assigned_site_ids[0] if assigned_site_ids else (emp.get("assignedSiteId") if emp else None)
+        assigned_site_name = assigned_site_names[0] if assigned_site_names else (emp.get("assignedSiteName", site_name) if emp else site_name)
+
+        # Look up authoritative assigned sites list
+        assigned_sites_list = []
+        if sites_col is not None and assigned_site_ids:
+            raw_docs = await sites_col.find({"$or": [{"id": {"$in": assigned_site_ids}}, {"_id": {"$in": assigned_site_ids}}]}).to_list(50)
+            site_map = {str(s.get("id", s.get("_id"))): s for s in raw_docs}
+            for sid in assigned_site_ids:
+                if sid in site_map:
+                    s_doc = site_map[sid]
+                    assigned_sites_list.append({
+                        "id": str(s_doc.get("id", s_doc.get("_id"))),
+                        "name": s_doc.get("name", sid),
+                        "code": s_doc.get("code", "ADN-SITE"),
+                        "address": s_doc.get("address", ""),
+                        "latitude": s_doc.get("latitude"),
+                        "longitude": s_doc.get("longitude"),
+                        "attendanceRadius": s_doc.get("attendanceRadius", 500.0),
+                        "manager": s_doc.get("manager", ""),
+                        "managerPhone": s_doc.get("managerPhone", "+91 98220 12345"),
+                        "managerEmail": s_doc.get("managerEmail", "ops@adani.com"),
+                        "workingHours": s_doc.get("workingHours", "09:00 AM - 06:00 PM")
+                    })
+
+        assigned_site_doc = assigned_sites_list[0] if assigned_sites_list else None
+        site_info = assigned_site_doc
+
         if record:
             is_checked_in = bool(record.get("checkInTime") and not record.get("checkOutTime"))
+            check_in_loc = record.get("checkInLocation")
+
             return {
                 "isCheckedIn": is_checked_in,
                 "status": record.get("status", "Present"),
                 "employeeId": employee_id,
                 "employeeName": emp_name,
-                "siteName": record.get("siteName", site_name),
+                "siteId": record.get("siteId") or assigned_site_id,
+                "siteName": record.get("siteName") or assigned_site_name,
+                "assignedSiteId": assigned_site_id,
+                "assignedSiteName": assigned_site_name,
+                "assignedSiteIds": assigned_site_ids,
+                "assignedSiteNames": assigned_site_names,
+                "assignedSite": site_info,
+                "assignedSites": assigned_sites_list,
+                "siteLatitude": assigned_site_doc.get("latitude") if assigned_site_doc else None,
+                "siteLongitude": assigned_site_doc.get("longitude") if assigned_site_doc else None,
                 "date": record.get("date", today_str),
                 "checkInTime": record.get("checkInTime"),
                 "checkOutTime": record.get("checkOutTime"),
-                "checkInLocation": record.get("checkInLocation"),
+                "checkInLocation": check_in_loc,
                 "checkOutLocation": record.get("checkOutLocation"),
-                "workingHours": record.get("workingHours", "0h 00m")
+                "workingHours": record.get("workingHours", "0h 00m"),
+                "createdAt": record.get("createdAt")
+            }
+
+        default_loc = None
+        if assigned_site_doc and "latitude" in assigned_site_doc and "longitude" in assigned_site_doc:
+            default_loc = {
+                "latitude": round(assigned_site_doc["latitude"] + 0.00018, 6),
+                "longitude": round(assigned_site_doc["longitude"] + 0.00015, 6),
+                "accuracy": 10.0,
+                "address": assigned_site_doc.get("address")
             }
 
         return {
@@ -43,11 +101,20 @@ class AttendanceService:
             "status": "Not Checked In",
             "employeeId": employee_id,
             "employeeName": emp_name,
-            "siteName": site_name,
+            "siteId": assigned_site_id,
+            "siteName": assigned_site_name,
+            "assignedSiteId": assigned_site_id,
+            "assignedSiteName": assigned_site_name,
+            "assignedSiteIds": assigned_site_ids,
+            "assignedSiteNames": assigned_site_names,
+            "assignedSite": site_info,
+            "assignedSites": assigned_sites_list,
+            "siteLatitude": assigned_site_doc.get("latitude") if assigned_site_doc else None,
+            "siteLongitude": assigned_site_doc.get("longitude") if assigned_site_doc else None,
             "date": today_str,
             "checkInTime": None,
             "checkOutTime": None,
-            "checkInLocation": None,
+            "checkInLocation": default_loc,
             "checkOutLocation": None,
             "workingHours": "0h 00m"
         }
@@ -74,11 +141,15 @@ class AttendanceService:
             }
             await employees_col.insert_one(emp)
 
-        site_id = req.siteId or emp.get("assignedSiteId")
+        site_id = emp.get("assignedSiteId") or req.siteId
         site = None
         if sites_col is not None:
             if site_id:
-                site = await sites_col.find_one({"id": site_id})
+                site = await sites_col.find_one({"$or": [{"id": site_id}, {"_id": site_id}, {"code": site_id}]})
+            if not site and emp.get("assignedSiteName"):
+                site = await sites_col.find_one({"name": emp.get("assignedSiteName")})
+            if not site and req.siteId:
+                site = await sites_col.find_one({"$or": [{"id": req.siteId}, {"_id": req.siteId}]})
             if not site:
                 site = await sites_col.find_one({})
         if not site:
@@ -103,7 +174,7 @@ class AttendanceService:
         site_name = site.get("name", "Field Operations") if site else "Field Operations"
         site_id = site.get("id", "site_field_1") if site else "site_field_1"
 
-        # Check proximity dynamically - in real world operations, check-in is based on the technician's actual location
+        # Enforce strict geofence verification (must be within allowed radius, default 500m)
         proximity_meters = 0.0
         if site and "latitude" in site and "longitude" in site:
             proximity = map_service.verify_site_proximity(
@@ -114,13 +185,24 @@ class AttendanceService:
                 allowed_radius_meters=allowed_radius
             )
             proximity_meters = proximity["distanceMeters"]
-            # If within site radius, use site's name; if deployed in the field, record as active field location
             if not proximity["isWithinRadius"]:
-                site_name = f"{site_name} (Field Deployment)"
+                dist_str = proximity.get("distanceFormatted", f"{int(proximity_meters)}m")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Check-in rejected: Outside authorized geofence. You are currently {dist_str} away from '{site.get('name')}'. Attendance check-in is strictly permitted only within {int(allowed_radius)}m of your assigned substation."
+                )
 
         now = get_ist_now()
         check_in_time_str = get_ist_time_str()
         today_str = get_ist_today_str()
+
+        # Check if already checked in without checking out
+        existing_record = await attendance_col.find_one({"employeeId": req.employeeId, "date": today_str})
+        if existing_record and existing_record.get("checkInTime") and not existing_record.get("checkOutTime"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Shift is currently active (Checked in at {existing_record.get('checkInTime')}). You must check out before checking in again."
+            )
 
         # Update or create attendance record
         filter_query = {"employeeId": req.employeeId, "date": today_str}
@@ -144,18 +226,6 @@ class AttendanceService:
         }
 
         await attendance_col.update_one(filter_query, {"$set": attendance_record}, upsert=True)
-
-        # Sync employee assigned site in database so user side updates automatically
-        if site and "id" in site and "name" in site:
-            await employees_col.update_one(
-                {"employeeId": req.employeeId},
-                {"$set": {"assignedSiteId": site["id"], "assignedSiteName": site["name"]}}
-            )
-            users_col = get_collection("users")
-            await users_col.update_one(
-                {"employeeId": req.employeeId},
-                {"$set": {"assignedSiteId": site["id"], "assignedSiteName": site["name"]}}
-            )
 
         # Save to location log
         await locations_col.insert_one({

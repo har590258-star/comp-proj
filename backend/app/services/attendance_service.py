@@ -1,10 +1,14 @@
+import logging
 from datetime import datetime, date
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from fastapi import HTTPException
 from app.db.mongodb import get_collection
 from app.services.map_service import map_service
+from app.services.cloud_storage import cloud_storage_service
 from app.schemas.attendance import CheckInRequest, CheckOutRequest
 from app.utils.time_utils import get_ist_now, get_ist_today_str, get_ist_time_str
+
+logger = logging.getLogger("uvicorn")
 
 class AttendanceService:
     async def get_today_status(self, employee_id: str) -> Dict[str, Any]:
@@ -83,17 +87,11 @@ class AttendanceService:
                 "checkOutTime": record.get("checkOutTime"),
                 "checkInLocation": check_in_loc,
                 "checkOutLocation": record.get("checkOutLocation"),
+                "distanceTraveledMeters": record.get("distanceTraveledMeters"),
+                "distanceTraveledFormatted": record.get("distanceTraveledFormatted"),
                 "workingHours": record.get("workingHours", "0h 00m"),
+                "photoUrl": record.get("photoUrl"),
                 "createdAt": record.get("createdAt")
-            }
-
-        default_loc = None
-        if assigned_site_doc and "latitude" in assigned_site_doc and "longitude" in assigned_site_doc:
-            default_loc = {
-                "latitude": round(assigned_site_doc["latitude"] + 0.00018, 6),
-                "longitude": round(assigned_site_doc["longitude"] + 0.00015, 6),
-                "accuracy": 10.0,
-                "address": assigned_site_doc.get("address")
             }
 
         return {
@@ -114,9 +112,10 @@ class AttendanceService:
             "date": today_str,
             "checkInTime": None,
             "checkOutTime": None,
-            "checkInLocation": default_loc,
+            "checkInLocation": None,
             "checkOutLocation": None,
-            "workingHours": "0h 00m"
+            "workingHours": "0h 00m",
+            "photoUrl": None
         }
 
     async def check_in(self, req: CheckInRequest) -> Dict[str, Any]:
@@ -141,17 +140,17 @@ class AttendanceService:
             }
             await employees_col.insert_one(emp)
 
-        site_id = emp.get("assignedSiteId") or req.siteId
+        # Prioritize the specific site requested by the technician
+        target_site_id = req.siteId or emp.get("assignedSiteId")
         site = None
-        if sites_col is not None:
-            if site_id:
-                site = await sites_col.find_one({"$or": [{"id": site_id}, {"_id": site_id}, {"code": site_id}]})
-            if not site and emp.get("assignedSiteName"):
-                site = await sites_col.find_one({"name": emp.get("assignedSiteName")})
-            if not site and req.siteId:
-                site = await sites_col.find_one({"$or": [{"id": req.siteId}, {"_id": req.siteId}]})
-            if not site:
-                site = await sites_col.find_one({})
+        if sites_col is not None and target_site_id:
+            site = await sites_col.find_one({"$or": [{"id": target_site_id}, {"_id": target_site_id}, {"code": target_site_id}]})
+        if not site and emp.get("assignedSiteName"):
+            site = await sites_col.find_one({"name": emp.get("assignedSiteName")})
+        if not site and req.siteId:
+            site = await sites_col.find_one({"$or": [{"id": req.siteId}, {"_id": req.siteId}]})
+        if not site and sites_col is not None:
+            site = await sites_col.find_one({})
         if not site:
             site = {
                 "id": "site_pune_1",
@@ -192,6 +191,21 @@ class AttendanceService:
                     detail=f"Check-in rejected: Outside authorized geofence. You are currently {dist_str} away from '{site.get('name')}'. Attendance check-in is strictly permitted only within {int(allowed_radius)}m of your assigned substation."
                 )
 
+        # Enforce mandatory shift verification photo upload
+        if not req.photo or not req.photo.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Verification photo is required to check in. Please capture or upload your photo first."
+            )
+
+        storage_res = cloud_storage_service.save_photo(req.employeeId, req.photo)
+        photo_url = storage_res.get("photoUrl")
+        if not photo_url:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to process verification photo. Please upload a valid image file."
+            )
+
         now = get_ist_now()
         check_in_time_str = get_ist_time_str()
         today_str = get_ist_today_str()
@@ -204,7 +218,7 @@ class AttendanceService:
                 detail=f"Shift is currently active (Checked in at {existing_record.get('checkInTime')}). You must check out before checking in again."
             )
 
-        # Update or create attendance record
+        # Update or create attendance record with temporary shift photo
         filter_query = {"employeeId": req.employeeId, "date": today_str}
         attendance_record = {
             "employeeId": req.employeeId,
@@ -221,6 +235,11 @@ class AttendanceService:
             },
             "status": "Present",
             "workingHours": "Active",
+            "photoUrl": photo_url,
+            "storageType": storage_res.get("storageType"),
+            "gcsBlobName": storage_res.get("gcsBlobName"),
+            "photoPath": storage_res.get("localPath"),
+            "photoUploadedAt": now.isoformat(),
             "createdAt": now.isoformat(),
             "updatedAt": now.isoformat()
         }
@@ -239,7 +258,7 @@ class AttendanceService:
 
         return {
             "success": True,
-            "message": "Checked in successfully",
+            "message": "Checked in successfully with photo verification",
             "record": attendance_record,
             "distanceFromSite": proximity_meters
         }
@@ -255,6 +274,16 @@ class AttendanceService:
 
         now = get_ist_now()
         check_out_time_str = get_ist_time_str()
+        target_date = record.get("date", today_str)
+
+        # Automatically and permanently delete verification photo from Google Cloud Storage or disk
+        photo_deleted = cloud_storage_service.delete_photo(
+            storage_type=record.get("storageType"),
+            gcs_blob_name=record.get("gcsBlobName"),
+            local_path=record.get("photoPath"),
+            employee_id=req.employeeId,
+            date_str=target_date
+        )
 
         # Calculate working duration
         working_hours_str = "0h 01m"
@@ -272,6 +301,19 @@ class AttendanceService:
         except Exception:
             working_hours_str = "0h 01m"
 
+        # Calculate movement distance between point of check in and check out location
+        from app.utils.geo import calculate_haversine_distance, format_distance
+        dist_traveled_meters = 0.0
+        dist_traveled_formatted = "0 m"
+        check_in_loc = record.get("checkInLocation")
+        if check_in_loc and isinstance(check_in_loc, dict):
+            cin_lat = check_in_loc.get("latitude")
+            cin_lon = check_in_loc.get("longitude")
+            if cin_lat is not None and cin_lon is not None and req.latitude is not None and req.longitude is not None:
+                dist_traveled_meters = calculate_haversine_distance(cin_lat, cin_lon, req.latitude, req.longitude)
+                dist_traveled_meters = round(dist_traveled_meters, 1)
+                dist_traveled_formatted = format_distance(dist_traveled_meters)
+
         update_data = {
             "checkOutTime": check_out_time_str,
             "checkOutLocation": {
@@ -281,13 +323,25 @@ class AttendanceService:
             },
             "status": "Checked Out",
             "workingHours": working_hours_str,
+            "distanceTraveledMeters": dist_traveled_meters,
+            "distanceTraveledFormatted": dist_traveled_formatted,
+            "photoUrl": None,
+            "storageType": None,
+            "photoDeleted": True,
+            "photoDeletedAt": now.isoformat(),
             "updatedAt": now.isoformat()
         }
 
-        target_date = record.get("date", today_str)
+        # Update record and remove photoPath and gcsBlobName from database document
         await attendance_col.update_one(
             {"employeeId": req.employeeId, "date": target_date},
-            {"$set": update_data}
+            {
+                "$set": update_data,
+                "$unset": {
+                    "photoPath": "",
+                    "gcsBlobName": ""
+                }
+            }
         )
 
         # Log location
@@ -302,9 +356,12 @@ class AttendanceService:
 
         return {
             "success": True,
-            "message": "Checked out successfully",
+            "message": "Checked out successfully. Shift verification photo permanently deleted from database and storage.",
             "checkOutTime": check_out_time_str,
-            "workingHours": working_hours_str
+            "workingHours": working_hours_str,
+            "distanceTraveledMeters": dist_traveled_meters,
+            "distanceTraveledFormatted": dist_traveled_formatted,
+            "photoDeleted": photo_deleted
         }
 
     async def get_history(self, employee_id: str, month: Optional[str] = None, filter_type: str = "monthly") -> List[Dict[str, Any]]:
@@ -327,6 +384,20 @@ class AttendanceService:
                 emp = await employees_col.find_one({"employeeId": item.get("employeeId")})
                 if emp:
                     item["employeeName"] = emp.get("name")
+            
+            # Ensure distanceTraveledFormatted is populated for every checked-out record
+            if not item.get("distanceTraveledFormatted") and item.get("checkInLocation") and item.get("checkOutLocation"):
+                cin = item["checkInLocation"]
+                cout = item["checkOutLocation"]
+                if isinstance(cin, dict) and isinstance(cout, dict):
+                    cin_lat, cin_lon = cin.get("latitude"), cin.get("longitude")
+                    cout_lat, cout_lon = cout.get("latitude"), cout.get("longitude")
+                    if cin_lat is not None and cin_lon is not None and cout_lat is not None and cout_lon is not None:
+                        from app.utils.geo import calculate_haversine_distance, format_distance
+                        d = calculate_haversine_distance(cin_lat, cin_lon, cout_lat, cout_lon)
+                        item["distanceTraveledMeters"] = round(d, 1)
+                        item["distanceTraveledFormatted"] = format_distance(d)
+
             formatted.append(item)
         return formatted
 

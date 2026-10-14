@@ -11,16 +11,26 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
     if not token:
         emp = await employees_col.find_one({"employeeId": "EMP001"}) if employees_col is not None else None
-        assigned_ids = (emp and emp.get("assignedSiteIds")) or ["site_2949e4fc"]
-        assigned_names = (emp and emp.get("assignedSiteNames")) or ["Surat ST-1"]
+        assigned_ids = list((emp and emp.get("assignedSiteIds")) or [])
+        if not assigned_ids and emp and emp.get("assignedSiteId"):
+            assigned_ids = [emp.get("assignedSiteId")]
+        if not assigned_ids:
+            assigned_ids = ["site_pune_1"]
+
+        assigned_names = list((emp and emp.get("assignedSiteNames")) or [])
+        if not assigned_names and emp and emp.get("assignedSiteName"):
+            assigned_names = [emp.get("assignedSiteName")]
+        if not assigned_names:
+            assigned_names = ["Pune - Phase 1"]
+
         return {
             "id": "usr_emp001",
             "username": "EMP001",
-            "name": emp.get("name", "Rohit Sharma") if emp else "Rohit Sharma",
+            "name": emp.get("name", "Rahul Sharma") if emp else "Rahul Sharma",
             "role": "technician",
             "employeeId": "EMP001",
-            "assignedSiteId": assigned_ids[0] if assigned_ids else "site_2949e4fc",
-            "assignedSiteName": assigned_names[0] if assigned_names else "Surat ST-1",
+            "assignedSiteId": assigned_ids[0],
+            "assignedSiteName": assigned_names[0],
             "assignedSiteIds": assigned_ids,
             "assignedSiteNames": assigned_names,
         }
@@ -41,10 +51,19 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     emp = await employees_col.find_one({"employeeId": user.get("employeeId")})
     if emp:
         user["name"] = emp.get("name", user.get("name"))
-        user["assignedSiteId"] = emp.get("assignedSiteId", user.get("assignedSiteId"))
-        user["assignedSiteName"] = emp.get("assignedSiteName", user.get("assignedSiteName"))
-        user["assignedSiteIds"] = emp.get("assignedSiteIds", user.get("assignedSiteIds", []))
-        user["assignedSiteNames"] = emp.get("assignedSiteNames", user.get("assignedSiteNames", []))
+        assigned_ids = list(emp.get("assignedSiteIds") or user.get("assignedSiteIds") or [])
+        assigned_names = list(emp.get("assignedSiteNames") or user.get("assignedSiteNames") or [])
+        primary_site_id = (assigned_ids[0] if assigned_ids else None) or emp.get("assignedSiteId") or user.get("assignedSiteId")
+        primary_site_name = (assigned_names[0] if assigned_names else None) or emp.get("assignedSiteName") or user.get("assignedSiteName")
+        if not assigned_ids and primary_site_id:
+            assigned_ids = [primary_site_id]
+        if not assigned_names and primary_site_name:
+            assigned_names = [primary_site_name]
+        
+        user["assignedSiteId"] = primary_site_id
+        user["assignedSiteName"] = primary_site_name
+        user["assignedSiteIds"] = assigned_ids
+        user["assignedSiteNames"] = assigned_names
         user["status"] = emp.get("status", user.get("status"))
 
     user["id"] = str(user.get("_id", user.get("id")))
@@ -55,6 +74,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest):
     users_col = get_collection("users")
+    employees_col = get_collection("employees")
     
     # Allow login by username (EMP001), phone, or email
     user = await users_col.find_one({

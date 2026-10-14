@@ -50,20 +50,26 @@ async def list_employees(
     status: Optional[str] = Query(None)
 ):
     col = get_collection("employees")
-    query = {}
+    conditions = []
     if search:
-        query["$or"] = [
-            {"name": {"$regex": search, "$options": "i"} if hasattr(col, "client") and col.client else search},
-            {"employeeId": search},
-            {"phone": search}
-        ]
+        conditions.append({
+            "$or": [
+                {"name": {"$regex": search, "$options": "i"} if hasattr(col, "client") and col.client else search},
+                {"employeeId": search},
+                {"phone": search}
+            ]
+        })
     if siteId and siteId != "all":
-        query["$or"] = [
-            {"assignedSiteId": siteId},
-            {"assignedSiteIds": siteId}
-        ]
+        conditions.append({
+            "$or": [
+                {"assignedSiteId": siteId},
+                {"assignedSiteIds": siteId}
+            ]
+        })
     if status and status != "all":
-        query["status"] = status
+        conditions.append({"status": status})
+
+    query = {"$and": conditions} if len(conditions) > 1 else (conditions[0] if conditions else {})
 
     docs = await col.find(query).to_list(100)
     results = []

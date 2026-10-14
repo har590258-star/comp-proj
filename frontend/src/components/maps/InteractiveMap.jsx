@@ -173,15 +173,16 @@ const InteractiveMap = ({
   const fallbackLat = hasSiteCoords ? siteLat : validCenterLat;
   const fallbackLon = hasSiteCoords ? siteLon : validCenterLon;
 
-  const userLat = hasUserCoords ? Number(userLocation.latitude) : fallbackLat;
-  const userLon = hasUserCoords ? Number(userLocation.longitude) : fallbackLon;
+  const userLat = hasUserCoords ? Number(userLocation.latitude) : null;
+  const userLon = hasUserCoords ? Number(userLocation.longitude) : null;
 
-  const activeSiteLat = hasSiteCoords ? siteLat : userLat;
-  const activeSiteLon = hasSiteCoords ? siteLon : userLon;
-
-  const distKm = getDistanceKm(userLat, userLon, activeSiteLat, activeSiteLon);
-  const distMeters = Math.round(distKm * 1000);
-  const isInGeofence = distMeters <= geofenceRadius;
+  const distKm = (hasUserCoords && hasSiteCoords)
+    ? getDistanceKm(userLat, userLon, siteLat, siteLon)
+    : 0;
+  const distMeters = (hasUserCoords && hasSiteCoords)
+    ? Math.round(distKm * 1000)
+    : null;
+  const isInGeofence = distMeters !== null && distMeters <= geofenceRadius;
 
   const activeCenter = hasSiteCoords
     ? [siteLat, siteLon]
@@ -291,7 +292,7 @@ const InteractiveMap = ({
         )}
 
         {/* Site location marker (strictly when valid site coordinates exist) */}
-        {hasSiteCoords && siteLat !== null && siteLon !== null && !isNaN(siteLat) && !isNaN(siteLon) && (isPicker || siteLat !== userLat || siteLon !== userLon) && (
+        {hasSiteCoords && siteLat !== null && siteLon !== null && !isNaN(siteLat) && !isNaN(siteLon) && (
           <Marker
             position={[siteLat, siteLon]}
             icon={createSiteIcon(siteLocation?.name || 'Tagged Site Location')}

@@ -140,6 +140,7 @@ const Reports = () => {
             checkIn: r.checkInTime || '--',
             checkOut: r.checkOutTime || '--',
             hours: r.workingHours || '--',
+            distanceTraveled: r.distanceTraveledFormatted || (r.distanceTraveledMeters !== undefined && r.distanceTraveledMeters !== null ? `${r.distanceTraveledMeters} m` : '--'),
           }));
           setReportRows(mapped);
         } else {
@@ -715,6 +716,7 @@ const Reports = () => {
                       <th className="py-3 px-4">Check-In</th>
                       <th className="py-3 px-4">Check-Out</th>
                       <th className="py-3 px-4">Hours</th>
+                      <th className="py-3 px-4">Distance Traveled</th>
                       <th className="py-3 px-4">Status</th>
                     </tr>
                   </thead>
@@ -727,6 +729,7 @@ const Reports = () => {
                         <td className="py-3 px-4 font-mono text-xs text-slate-500">{r.checkIn}</td>
                         <td className="py-3 px-4 font-mono text-xs text-slate-500">{r.checkOut}</td>
                         <td className="py-3 px-4 text-slate-700">{r.hours}</td>
+                        <td className="py-3 px-4 font-mono text-xs font-semibold text-slate-800">{r.distanceTraveled}</td>
                         <td className="py-3 px-4">
                           <StatusBadge status={r.status} size="sm" />
                         </td>
@@ -756,6 +759,10 @@ const Reports = () => {
                       <div className="flex justify-between">
                         <span>Hours:</span>
                         <span className="font-semibold text-brand-600">{r.hours}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Distance Traveled:</span>
+                        <span className="font-semibold text-blue-700 font-mono">{r.distanceTraveled}</span>
                       </div>
                       <div className="flex justify-between text-[11px] text-slate-400 pt-1">
                         <span>In: {r.checkIn}</span>

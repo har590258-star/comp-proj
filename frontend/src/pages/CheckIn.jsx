@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -15,9 +15,13 @@ import {
   Timer,
   CheckCircle,
   AlertTriangle,
+  Camera,
+  UploadCloud,
+  Trash2,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useGeolocation } from '../hooks/useGeolocation';
+import { useGeolocation, saveStoredAssignedSite, getStoredAssignedSite } from '../hooks/useGeolocation';
 import { useToast } from '../components/ui/Toast';
 import api from '../services/api';
 import Card from '../components/ui/Card';
@@ -41,7 +45,7 @@ const CheckIn = () => {
     }
   });
 
-  const { coordinates, loading: geoLoading, error: geoError, refreshLocation } = useGeolocation({ assignedSite });
+  const { coordinates, loading: geoLoading, error: geoError, refreshLocation, anchorToSite } = useGeolocation({ assignedSite });
   const { showToast } = useToast();
 
   const [submitting, setSubmitting] = useState(false);
@@ -49,6 +53,48 @@ const CheckIn = () => {
   const [todayStatus, setTodayStatus] = useState(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [now, setNow] = useState(new Date());
+
+  // Verification photo state (Required for Check-In, auto-purged on Checkout)
+  const [photoData, setPhotoData] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [photoFileName, setPhotoFileName] = useState('');
+  const cameraInputRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const handlePhotoSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showToast('Please select a valid image file (JPG, PNG, WEBP).', 'error');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('Photo size is too large (max 10MB). Please choose a smaller photo.', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setPhotoData(event.target.result);
+      setPhotoPreview(event.target.result);
+      setPhotoFileName(file.name || 'shift_verification.jpg');
+      showToast('Verification photo attached. Shift check-in is now unlocked!', 'success');
+    };
+    reader.onerror = () => {
+      showToast('Failed to read image file.', 'error');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemovePhoto = () => {
+    setPhotoData(null);
+    setPhotoPreview(null);
+    setPhotoFileName('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+  };
 
   // Location anchored to assigned site
   const siteLat =
@@ -63,18 +109,13 @@ const CheckIn = () => {
 
   const [simulateAtSite, setSimulateAtSite] = useState(false);
 
-  // Real employee device coordinates (Live in Bangalore by default)
+  // Real employee device coordinates
   let activeLat = coordinates.latitude;
   let activeLng = coordinates.longitude;
 
   if (simulateAtSite && hasSiteCoords) {
     activeLat = Number((siteLat + 0.00018).toFixed(6));
     activeLng = Number((siteLng + 0.00015).toFixed(6));
-  } else if (activeLat === null || activeLng === null) {
-    if (hasSiteCoords) {
-      activeLat = siteLat;
-      activeLng = siteLng;
-    }
   }
 
   const hasGps = activeLat !== null && activeLng !== null;
@@ -83,7 +124,7 @@ const CheckIn = () => {
     if (refreshUser) refreshUser();
     fetchAssignedSite();
     fetchTodayStatus();
-  }, [user?.employeeId, user?.assignedSiteId]);
+  }, [user?.employeeId, user?.assignedSiteId, querySiteId]);
 
   // Live ticking timer for hours worked while shift is active
   useEffect(() => {
@@ -128,21 +169,34 @@ const CheckIn = () => {
           const match = userSites.find(s => s.id === querySiteId || s._id === querySiteId);
           if (match) {
             setAssignedSite(match);
+            saveStoredAssignedSite(match);
             return;
           }
         }
 
-        // Priority 2: Keep current assignedSite if it's already one of the authorized sites
-        if (assignedSite && userSites.some(s => s.id === assignedSite.id)) {
+        // Priority 2: Stored site from session/local storage
+        const stored = getStoredAssignedSite();
+        if (stored?.id) {
+          const match = userSites.find(s => s.id === stored.id || s._id === stored.id);
+          if (match) {
+            setAssignedSite(match);
+            return;
+          }
+        }
+
+        // Priority 3: Keep current assignedSite if it's already one of the authorized sites
+        if (assignedSite && userSites.some(s => s.id === assignedSite.id || s._id === assignedSite.id)) {
           return;
         }
 
-        // Priority 3: Fallback to first assigned site
-        setAssignedSite(userSites[0]);
-        try {
-          sessionStorage.setItem('adani_assigned_site', JSON.stringify(userSites[0]));
-          localStorage.setItem('adani_assigned_site', JSON.stringify(userSites[0]));
-        } catch (_) {}
+        // Priority 4: Primary site from user profile or first site
+        const primaryMatch = user?.assignedSiteId
+          ? userSites.find(s => s.id === user.assignedSiteId || s._id === user.assignedSiteId)
+          : null;
+        const chosen = primaryMatch || userSites[0];
+        setAssignedSite(chosen);
+        saveStoredAssignedSite(chosen);
+        if (anchorToSite) anchorToSite(chosen);
         return;
       }
 
@@ -239,6 +293,11 @@ const CheckIn = () => {
       return;
     }
 
+    if (!photoPreview || !photoData) {
+      showToast('Shift verification photo is required. Please capture or upload a photo before checking in.', 'error');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const payload = {
@@ -248,12 +307,16 @@ const CheckIn = () => {
         longitude: Number(activeLng),
         accuracy: coordinates.accuracy || 10,
         bypassRadiusCheck: false,
+        photo: photoData,
       };
 
       const res = await api.post('/attendance/check-in', payload);
       setSuccessData(res.data);
+      setPhotoData(null);
+      setPhotoPreview(null);
+      setPhotoFileName('');
       await fetchTodayStatus();
-      showToast(`Checked in successfully at ${activeSite.name}!`, 'success');
+      showToast(`Checked in successfully with photo verification at ${activeSite.name}!`, 'success');
     } catch (err) {
       console.error('Check-in error:', err);
       const detail = err.response?.data?.detail;
@@ -319,17 +382,14 @@ const CheckIn = () => {
                 <Building2 className="w-5 h-5" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-extrabold text-slate-900">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-sm font-extrabold text-slate-900 whitespace-nowrap">
                     Assigned Substations ({assignedSites.length})
                   </h3>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand-100 text-brand-700">
+                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-brand-100 text-brand-700 whitespace-nowrap shrink-0">
                     Select Punch-In Site
                   </span>
                 </div>
-                <p className="text-xs text-slate-500">
-                  Select which authorized field substation you are currently reporting to
-                </p>
               </div>
             </div>
 
@@ -348,6 +408,9 @@ const CheckIn = () => {
                     onClick={() => {
                       setAssignedSite(site);
                       setSearchParams({ siteId: site.id });
+                      saveStoredAssignedSite(site);
+                      if (anchorToSite) anchorToSite(site);
+                      showToast(`Selected Substation: ${site.name}`, 'info');
                     }}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border cursor-pointer ${
                       isSelected
@@ -392,9 +455,9 @@ const CheckIn = () => {
                         ? 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-2xs'
                         : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
                     }`}
-                    title="Toggle between live device GPS (Bangalore) and on-site simulation for testing"
+                    title="Toggle between real device GPS and on-site simulation for testing"
                   >
-                    <span>{simulateAtSite ? `⚡ On-Site (${activeSite?.name || 'Substation'})` : '📍 Live GPS (Bangalore)'}</span>
+                    <span>{simulateAtSite ? `⚡ On-Site (${activeSite?.name || 'Substation'})` : '📍 Real Device GPS'}</span>
                   </button>
                   <button
                     onClick={refreshLocation}
@@ -411,7 +474,7 @@ const CheckIn = () => {
                   userLocation={hasGps ? {
                     latitude: activeLat,
                     longitude: activeLng,
-                    title: simulateAtSite ? 'Simulated On-Site' : 'Your Device GPS (Bangalore)',
+                    title: simulateAtSite ? 'Simulated On-Site' : 'Your Device GPS',
                   } : null}
                   siteLocation={siteLocation}
                   geofenceRadius={allowedRadius}
@@ -532,6 +595,21 @@ const CheckIn = () => {
                         </p>
                       </div>
                     </div>
+
+                    {todayStatus?.photoUrl && (
+                      <div className="flex items-center gap-3 p-2.5 bg-white rounded-lg border border-slate-200">
+                        <img
+                          src={todayStatus.photoUrl}
+                          alt="Shift Verification"
+                          className="w-12 h-12 rounded-lg object-cover border border-slate-200 flex-shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Shift Verification Photo</p>
+                          <p className="text-xs font-semibold text-slate-800">Attached to Active Shift</p>
+                          <p className="text-[10px] text-amber-600 font-medium">Will be automatically deleted on checkout</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Action Buttons */}
@@ -660,16 +738,112 @@ const CheckIn = () => {
                     </div>
                   </div>
 
-                  {/* Check In Button - Enabled strictly when within allowed geofence */}
+                  {/* Shift Photo Verification Section (Mandatory) */}
+                  <div className="w-full mb-6">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5">
+                        <Camera className="w-4 h-4 text-brand-600" />
+                        <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                          Shift Verification Photo <span className="text-rose-500 font-extrabold">*</span>
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-amber-700 font-bold bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-amber-600" />
+                        Auto-Deleted On Checkout
+                      </span>
+                    </div>
+
+                    {!photoPreview ? (
+                      <div className="border-2 border-dashed border-slate-300 hover:border-brand-500 rounded-2xl p-4 sm:p-5 bg-slate-50/80 transition-all text-center">
+                        <div className="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mx-auto mb-2.5">
+                          <Camera className="w-6 h-6" />
+                        </div>
+                        <p className="text-xs font-bold text-slate-800 mb-1">
+                          Capture or Upload Attendance Photo
+                        </p>
+                        <p className="text-[11px] text-slate-500 max-w-xs mx-auto mb-3.5 leading-relaxed">
+                          Take a quick on-site photo or selfie to unlock shift check-in. For privacy, this photo is automatically erased upon check-out.
+                        </p>
+
+                        {/* Hidden file inputs for Camera and File Browser */}
+                        <input
+                          ref={cameraInputRef}
+                          type="file"
+                          accept="image/*"
+                          capture="user"
+                          onChange={handlePhotoSelect}
+                          className="hidden"
+                        />
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          onChange={handlePhotoSelect}
+                          className="hidden"
+                        />
+
+                        <div className="flex items-center justify-center gap-2.5">
+                          <button
+                            type="button"
+                            onClick={() => cameraInputRef.current?.click()}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold shadow-sm transition-colors cursor-pointer"
+                          >
+                            <Camera className="w-3.5 h-3.5" />
+                            <span>Take Photo</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                          >
+                            <UploadCloud className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Browse File</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative rounded-2xl border border-emerald-300 bg-emerald-50/50 p-3.5 flex items-center gap-3.5">
+                        <div className="w-16 h-16 rounded-xl overflow-hidden border border-emerald-200 flex-shrink-0 bg-slate-900 shadow-sm relative group">
+                          <img
+                            src={photoPreview}
+                            alt="Verification Preview"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 text-emerald-700 font-bold text-xs">
+                            <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="truncate">Photo Attached & Verified</span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 truncate mt-0.5 font-medium">
+                            {photoFileName || 'shift_verification.jpg'}
+                          </p>
+                          <p className="text-[10px] text-amber-700 mt-1 flex items-center gap-1 font-medium">
+                            <span>● Erased from database on shift check-out</span>
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleRemovePhoto}
+                          className="p-2 rounded-xl bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 transition-colors flex-shrink-0 cursor-pointer"
+                          title="Retake or Remove Photo"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Check In Button - Enabled strictly when within allowed geofence AND photo is attached */}
                   <Button
                     variant="primary"
                     size="lg"
                     fullWidth
                     loading={submitting}
-                    disabled={!hasGps || !isWithinGeofence}
+                    disabled={!hasGps || !isWithinGeofence || !photoPreview}
                     onClick={handleCheckIn}
                     className={
-                      !isWithinGeofence
+                      !isWithinGeofence || !photoPreview
                         ? 'bg-slate-200 border border-slate-300 text-slate-400 font-bold py-4 text-sm cursor-not-allowed select-none shadow-none'
                         : 'bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-4 text-base shadow-md cursor-pointer'
                     }
@@ -678,13 +852,17 @@ const CheckIn = () => {
                       ? 'Acquiring GPS Signal...'
                       : !isWithinGeofence
                       ? `Locked: Outside ${allowedRadius}m Geofence`
+                      : !photoPreview
+                      ? 'Photo Upload Required to Check In'
                       : (todayStatus?.checkOutTime ? 'Check In Again Now' : 'Check In Now')}
                   </Button>
 
                   <p className="text-xs text-slate-500 font-medium mt-4 leading-relaxed">
                     {!isWithinGeofence
                       ? `Attendance check-in is blocked because your current device GPS is not within ${allowedRadius}m of ${siteLocation.name}.`
-                      : 'Your check-in time, live location, and device telemetry will be stored securely in the central Adani database.'}
+                      : !photoPreview
+                      ? 'Please capture or upload a photo above to enable the check-in button.'
+                      : 'Your check-in time, live location, and photo will be logged. The photo is automatically deleted when you check out.'}
                   </p>
                 </>
               )}

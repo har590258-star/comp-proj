@@ -77,6 +77,7 @@ const AttendanceHistory = () => {
             checkIn: r.checkInTime || '--',
             checkOut: r.checkOutTime || '--',
             hours: r.workingHours || '--',
+            distanceTraveled: r.distanceTraveledFormatted || (r.distanceTraveledMeters !== undefined && r.distanceTraveledMeters !== null ? `${r.distanceTraveledMeters} m` : '--'),
           };
         });
         setRecords(formatted);
@@ -232,6 +233,7 @@ const AttendanceHistory = () => {
                     <th className="py-3 px-5">Check-In</th>
                     <th className="py-3 px-5">Check-Out</th>
                     <th className="py-3 px-5">Duration</th>
+                    <th className="py-3 px-5">Distance Traveled</th>
                     <th className="py-3 px-5">Status</th>
                   </tr>
                 </thead>
@@ -260,6 +262,9 @@ const AttendanceHistory = () => {
                       </td>
                       <td className="py-3.5 px-5 text-xs text-brand-600 font-bold whitespace-nowrap">
                         {item.hours}
+                      </td>
+                      <td className="py-3.5 px-5 text-xs font-mono font-semibold text-slate-800 whitespace-nowrap">
+                        {item.distanceTraveled}
                       </td>
                       <td className="py-3.5 px-5">
                         <StatusBadge status={item.status} size="sm" />

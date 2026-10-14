@@ -10,10 +10,12 @@ import {
   Radio,
   FileCheck2,
   LogIn,
+  Navigation,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGeolocation } from '../hooks/useGeolocation';
 import { useToast } from '../components/ui/Toast';
+import { calculateDistanceMeters, formatDistance } from '../utils/geoUtils';
 import api from '../services/api';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -50,14 +52,33 @@ const CheckOut = () => {
   let activeLat = coordinates.latitude;
   let activeLng = coordinates.longitude;
 
-  if (activeLat === null || activeLng === null) {
-    if (hasSiteCoords) {
-      activeLat = siteLat;
-      activeLng = siteLng;
-    }
-  }
-
   const hasGps = activeLat !== null && activeLng !== null;
+
+  const cinLat = shiftData?.checkInLocation?.latitude != null ? Number(shiftData.checkInLocation.latitude) : null;
+  const cinLng = shiftData?.checkInLocation?.longitude != null ? Number(shiftData.checkInLocation.longitude) : null;
+  const hasCheckInLocation = cinLat !== null && cinLng !== null;
+
+  const liveDistanceMeters = (hasCheckInLocation && hasGps)
+    ? calculateDistanceMeters(cinLat, cinLng, activeLat, activeLng)
+    : null;
+
+  const originLocation = hasCheckInLocation
+    ? {
+        name: 'Check-In Point',
+        code: 'CIN',
+        address: 'Shift punch-in origin point',
+        manager: assignedSite?.manager || 'Operations Lead',
+        latitude: cinLat,
+        longitude: cinLng,
+      }
+    : {
+        name: assignedSite?.name || user?.assignedSiteName || 'Field Operations',
+        code: assignedSite?.code || 'ADN-FLD-001',
+        address: assignedSite?.address || 'Active Field Deployment Zone',
+        manager: assignedSite?.manager || 'Operations Lead',
+        latitude: siteLat !== null ? siteLat : activeLat,
+        longitude: siteLng !== null ? siteLng : activeLng,
+      };
 
   const siteLocation = {
     name: assignedSite?.name || user?.assignedSiteName || 'Field Operations',
@@ -236,32 +257,39 @@ const CheckOut = () => {
               <div className="rounded-2xl overflow-hidden border border-slate-300">
                 <InteractiveMap
                   userLocation={coordinates}
-                  siteLocation={siteLocation}
+                  siteLocation={originLocation}
                   geofenceRadius={500}
                   showGeofence={true}
                   height="340px"
-                  showRoute={false}
+                  showRoute={hasCheckInLocation && hasGps}
                 />
               </div>
 
-              {/* Coordinates Breakdown Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">GPS Latitude</p>
-                  <p className="text-base font-mono font-bold text-slate-900 mt-1">
-                    {hasGps ? activeLat.toFixed(6) : 'Locating...'}
+              {/* Coordinates & Distance Breakdown Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">GPS Latitude</p>
+                  <p className="text-sm font-mono font-bold text-slate-900 mt-1">
+                    {hasGps ? activeLat.toFixed(5) : 'Locating...'}
                   </p>
                 </div>
-                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">GPS Longitude</p>
-                  <p className="text-base font-mono font-bold text-slate-900 mt-1">
-                    {hasGps ? activeLng.toFixed(6) : 'Locating...'}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">GPS Longitude</p>
+                  <p className="text-sm font-mono font-bold text-slate-900 mt-1">
+                    {hasGps ? activeLng.toFixed(5) : 'Locating...'}
                   </p>
                 </div>
-                <div className="p-3.5 bg-rose-50 rounded-xl border border-rose-200">
-                  <p className="text-xs font-bold text-rose-700 uppercase tracking-wider">Departure Precision</p>
-                  <p className="text-base font-bold text-rose-800 mt-1">
-                    ±{coordinates.accuracy || 6} meters
+                <div className="p-3 bg-rose-50 rounded-xl border border-rose-200">
+                  <p className="text-[11px] font-bold text-rose-700 uppercase tracking-wider">GPS Precision</p>
+                  <p className="text-sm font-bold text-rose-800 mt-1">
+                    ±{coordinates.accuracy || 6}m
+                  </p>
+                </div>
+                <div className="p-3 bg-blue-50 rounded-xl border border-blue-200">
+                  <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">Distance from Check-In</p>
+                  <p className="text-sm font-extrabold text-blue-800 mt-1 flex items-center gap-1.5">
+                    <Navigation className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
+                    <span>{liveDistanceMeters !== null ? formatDistance(liveDistanceMeters) : '--'}</span>
                   </p>
                 </div>
               </div>
@@ -283,7 +311,11 @@ const CheckOut = () => {
                 </div>
                 <div className="flex items-center gap-2.5">
                   <FileCheck2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                  <span>Shift duration calculated and logged into payroll system</span>
+                  <span>Shift duration and travel distance logged into central payroll</span>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <FileCheck2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                  <span className="text-emerald-700 font-semibold">Temporary shift photo automatically erased from database</span>
                 </div>
               </div>
             </Card>
@@ -321,6 +353,25 @@ const CheckOut = () => {
                     </p>
                     <p className="text-xs text-emerald-700 font-bold mt-0.5">
                       GPS Signal Active (±{coordinates.accuracy || 6}m)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-200" />
+
+                <div className="flex items-start gap-3.5">
+                  <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Navigation className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      Distance from Check-In Point
+                    </p>
+                    <p className="text-base font-extrabold text-blue-700 mt-0.5">
+                      {liveDistanceMeters !== null ? formatDistance(liveDistanceMeters) : '--'}
+                    </p>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Measured from punch-in point ({cinLat != null ? `${cinLat.toFixed(4)}, ${cinLng.toFixed(4)}` : 'Substation'})
                     </p>
                   </div>
                 </div>
@@ -404,6 +455,18 @@ const CheckOut = () => {
                 {successData?.workingHours || '--'}
               </span>
             </div>
+            <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+              <span className="text-slate-500">Distance Traveled (Check-In to Departure)</span>
+              <span className="font-extrabold text-blue-700 text-sm">
+                {successData?.distanceTraveledFormatted || (successData?.distanceTraveledMeters != null ? `${successData.distanceTraveledMeters} m` : (liveDistanceMeters != null ? formatDistance(liveDistanceMeters) : '--'))}
+              </span>
+            </div>
+            <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+              <span className="text-slate-500">Shift Verification Photo</span>
+              <span className="font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                ✓ Auto-Deleted from Server
+              </span>
+            </div>
             <div className="flex justify-between items-center py-1">
               <span className="text-slate-500">Departure Location</span>
               <span className="font-mono text-slate-800">
@@ -441,7 +504,7 @@ const CheckOut = () => {
             <div>
               <p className="text-sm font-semibold text-slate-900">End Current Working Shift?</p>
               <p className="text-xs text-slate-500 mt-1">
-                Are you sure you want to finalize your shift for today? Your departure GPS coordinates and shift duration will be logged.
+                Are you sure you want to finalize your shift for today? Your departure GPS coordinates, shift duration, and total travel distance ({liveDistanceMeters !== null ? formatDistance(liveDistanceMeters) : 'calculated on submit'}) will be permanently recorded in the central database.
               </p>
             </div>
           </div>

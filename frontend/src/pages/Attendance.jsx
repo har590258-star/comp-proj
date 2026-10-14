@@ -36,6 +36,7 @@ const Attendance = () => {
     checkInLocation: '--',
     checkOutLocation: '--',
     workingHours: '--',
+    distanceTraveled: '--',
   });
 
   const [elapsedFormatted, setElapsedFormatted] = useState('--');
@@ -118,6 +119,7 @@ const Attendance = () => {
             ? `${res.data.checkOutLocation.latitude.toFixed(6)}, ${res.data.checkOutLocation.longitude.toFixed(6)}`
             : '--',
           workingHours: res.data.workingHours || 'In Progress',
+          distanceTraveled: res.data.distanceTraveledFormatted || (res.data.distanceTraveledMeters != null ? `${res.data.distanceTraveledMeters} m` : '--'),
         });
       } else {
         setDetails((prev) => ({
@@ -126,6 +128,7 @@ const Attendance = () => {
           checkInTime: '--',
           checkOutTime: '--',
           workingHours: '--',
+          distanceTraveled: '--',
         }));
       }
     } catch (e) {
@@ -246,6 +249,17 @@ const Attendance = () => {
               </div>
               <span className="text-sm font-mono font-medium text-slate-800">
                 {details.checkOutLocation}
+              </span>
+            </div>
+
+            {/* Shift Distance Traveled */}
+            <div className="flex items-center justify-between p-4 sm:p-5">
+              <div className="flex items-center gap-3 text-slate-600">
+                <Navigation className="w-4 h-4 text-blue-500" />
+                <span className="text-sm font-medium">Shift Distance Traveled</span>
+              </div>
+              <span className="text-sm font-extrabold text-blue-700 font-mono">
+                {details.distanceTraveled}
               </span>
             </div>
 

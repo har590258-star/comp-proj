@@ -1,6 +1,6 @@
 import os
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "GPS Based Attendance & Tracking Application - Adani Smart Meter Project"
@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     
     # CORS
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173")
+    
+    # Google Cloud Storage (for hosting on Google Cloud)
+    GCS_BUCKET_NAME: Optional[str] = os.getenv("GCS_BUCKET_NAME", os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", None))
+    GOOGLE_CLOUD_PROJECT: Optional[str] = os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", None))
+    GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", None)
     
     # Server port
     PORT: int = int(os.getenv("PORT", 8000))

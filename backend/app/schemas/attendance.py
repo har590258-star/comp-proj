@@ -14,6 +14,7 @@ class CheckInRequest(BaseModel):
     longitude: float
     accuracy: Optional[float] = None
     bypassRadiusCheck: Optional[bool] = False
+    photo: Optional[str] = None # Base64 encoded verification photo
 
 class CheckOutRequest(BaseModel):
     employeeId: str
@@ -35,6 +36,9 @@ class AttendanceOut(BaseModel):
     status: str # "Present", "Absent", "Checked Out"
     workingHours: Optional[str] = None
     distanceFromSite: Optional[float] = None
+    distanceTraveledMeters: Optional[float] = None
+    distanceTraveledFormatted: Optional[str] = None
+    photoUrl: Optional[str] = None
     createdAt: Optional[str] = None
     updatedAt: Optional[str] = None
 
@@ -58,5 +62,8 @@ class TodayStatusOut(BaseModel):
     checkOutTime: Optional[str] = None
     checkInLocation: Optional[GeoPoint] = None
     checkOutLocation: Optional[GeoPoint] = None
+    distanceTraveledMeters: Optional[float] = None
+    distanceTraveledFormatted: Optional[str] = None
     workingHours: Optional[str] = None
+    photoUrl: Optional[str] = None
     createdAt: Optional[str] = None

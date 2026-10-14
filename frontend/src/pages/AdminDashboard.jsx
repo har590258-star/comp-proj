@@ -266,6 +266,7 @@ const AdminDashboard = () => {
                     <th className="py-3 px-5">Check-In Time</th>
                     <th className="py-3 px-5">Check-Out Time</th>
                     <th className="py-3 px-5">Working Duration</th>
+                    <th className="py-3 px-5">Distance Traveled</th>
                     <th className="py-3 px-5">Shift Status</th>
                   </tr>
                 </thead>
@@ -288,6 +289,9 @@ const AdminDashboard = () => {
                       <td className="py-3.5 px-5 text-xs text-brand-600 font-bold">
                         {row.workingHours || '--'}
                       </td>
+                      <td className="py-3.5 px-5 font-mono text-xs font-semibold text-slate-800">
+                        {row.distanceTraveledFormatted || '--'}
+                      </td>
                       <td className="py-3.5 px-5">
                         <StatusBadge status={row.status} size="sm" />
                       </td>
@@ -308,6 +312,8 @@ const AdminDashboard = () => {
                       <span>In: {row.checkIn || '--'}</span>
                       <span>•</span>
                       <span>Out: {row.checkOut || '--'}</span>
+                      <span>•</span>
+                      <span className="text-blue-700 font-bold">Dist: {row.distanceTraveledFormatted || '--'}</span>
                     </div>
                   </div>
                   <div className="text-right flex flex-col items-end gap-1">

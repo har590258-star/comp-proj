@@ -178,15 +178,18 @@ async def seed_initial_data():
             }
             await users_col.insert_one(user_doc)
     else:
-        # Ensure EMP001 is updated with Rohit Sharma and Surat ST-1
-        await employees_col.update_one(
-            {"employeeId": "EMP001"},
-            {"$set": {"name": "Rohit Sharma", "assignedSiteId": "site_2949e4fc", "assignedSiteName": "Surat ST-1"}}
-        )
-        await users_col.update_one(
-            {"employeeId": "EMP001"},
-            {"$set": {"name": "Rohit Sharma", "assignedSiteId": "site_2949e4fc", "assignedSiteName": "Surat ST-1"}}
-        )
+        # Preserve EMP001 name without overwriting multi-site assignments
+        emp_existing = await employees_col.find_one({"employeeId": "EMP001"})
+        if emp_existing:
+            assigned_ids = emp_existing.get("assignedSiteIds") or []
+            assigned_names = emp_existing.get("assignedSiteNames") or []
+            update_data = {"name": "Rohit Sharma"}
+            if assigned_ids and not emp_existing.get("assignedSiteId"):
+                update_data["assignedSiteId"] = assigned_ids[0]
+                if assigned_names:
+                    update_data["assignedSiteName"] = assigned_names[0]
+            await employees_col.update_one({"employeeId": "EMP001"}, {"$set": update_data})
+            await users_col.update_one({"employeeId": "EMP001"}, {"$set": update_data})
 
     # 3. Settings
     if await settings_col.count_documents({}) == 0:

@@ -86,7 +86,7 @@ export const generateSiteAnchoredCoords = (site) => {
 };
 
 // Helper to retrieve freshly cached device coordinates from session storage
-const getCachedCoordinates = (assignedSite = null, simulateOnSite = false) => {
+const getCachedCoordinates = (simulateOnSite = false, assignedSite = null) => {
   if (simulateOnSite && assignedSite) {
     return generateSiteAnchoredCoords(assignedSite);
   }
@@ -95,26 +95,30 @@ const getCachedCoordinates = (assignedSite = null, simulateOnSite = false) => {
     const saved = sessionStorage.getItem(CACHE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      // Valid if less than 60 minutes old
-      if (Date.now() - (parsed._cachedAt || 0) < 60 * 60 * 1000) {
+      // Valid only if authentic real GPS AND NOT anchored to site AND within 15 minutes
+      if (
+        parsed.isRealGps &&
+        !parsed.isSiteAnchored &&
+        parsed.latitude !== null &&
+        parsed.longitude !== null &&
+        Date.now() - (parsed._cachedAt || 0) < 15 * 60 * 1000
+      ) {
         return {
           latitude: parsed.latitude,
           longitude: parsed.longitude,
           accuracy: parsed.accuracy || 10,
           heading: parsed.heading || null,
           speed: parsed.speed || null,
-          isRealGps: Boolean(parsed.isRealGps),
+          isRealGps: true,
           isSiteAnchored: false,
         };
+      } else {
+        // Clear corrupt or fake site-anchored cache immediately
+        sessionStorage.removeItem(CACHE_KEY);
       }
     }
   } catch (e) {
     // Ignore storage parse issues
-  }
-
-  // If no GPS cache and simulation requested, fallback to site
-  if (simulateOnSite && assignedSite) {
-    return generateSiteAnchoredCoords(assignedSite);
   }
 
   return {
@@ -130,6 +134,9 @@ const getCachedCoordinates = (assignedSite = null, simulateOnSite = false) => {
 
 const saveCachedCoordinates = (coords) => {
   if (!coords?.latitude || !coords?.longitude) return;
+  // Never save site-anchored or fake coordinates as real GPS cache
+  if (coords.isSiteAnchored) return;
+
   try {
     sessionStorage.setItem(
       CACHE_KEY,
@@ -139,8 +146,8 @@ const saveCachedCoordinates = (coords) => {
         accuracy: coords.accuracy,
         heading: coords.heading,
         speed: coords.speed,
-        isRealGps: coords.isRealGps,
-        isSiteAnchored: coords.isSiteAnchored,
+        isRealGps: true,
+        isSiteAnchored: false,
         _cachedAt: Date.now(),
       })
     );
@@ -152,7 +159,7 @@ const saveCachedCoordinates = (coords) => {
 export const useGeolocation = (customOptions = {}) => {
   const { simulateOnSite = false, assignedSite: customSite, ...restOptions } = customOptions;
   const activeAssignedSite = customSite || getStoredAssignedSite();
-  const initialCache = getCachedCoordinates(activeAssignedSite, simulateOnSite);
+  const initialCache = getCachedCoordinates(simulateOnSite, activeAssignedSite);
 
   const [coordinates, setCoordinates] = useState(initialCache);
   const [error, setError] = useState(null);
@@ -161,25 +168,15 @@ export const useGeolocation = (customOptions = {}) => {
 
   const options = {
     enableHighAccuracy: true,
-    timeout: 8000,
-    maximumAge: 30000,
+    timeout: 10000,
+    maximumAge: 0,
     ...restOptions,
   };
 
   const isAcquiredRef = useRef(Boolean(initialCache.latitude));
 
-  // If simulateOnSite is explicitly toggled, update coordinates immediately
-  useEffect(() => {
-    if (simulateOnSite && activeAssignedSite?.latitude && activeAssignedSite?.longitude) {
-      const siteCoords = generateSiteAnchoredCoords(activeAssignedSite);
-      setCoordinates(siteCoords);
-      setLoading(false);
-      setError(null);
-    }
-  }, [simulateOnSite, activeAssignedSite?.id, activeAssignedSite?.latitude, activeAssignedSite?.longitude]);
-
   const checkPermission = useCallback(async () => {
-    if (navigator.permissions && navigator.permissions.query) {
+    if (typeof window !== 'undefined' && navigator.permissions && navigator.permissions.query) {
       try {
         const result = await navigator.permissions.query({ name: 'geolocation' });
         setPermissionState(result.state);
@@ -205,9 +202,9 @@ export const useGeolocation = (customOptions = {}) => {
     const coords = {
       latitude: rawLat,
       longitude: rawLng,
-      accuracy: Math.round(position.coords.accuracy),
-      heading: position.coords.heading,
-      speed: position.coords.speed,
+      accuracy: Math.round(position.coords.accuracy || 10),
+      heading: position.coords.heading || null,
+      speed: position.coords.speed || null,
       isRealGps: true,
       isSiteAnchored: false,
     };
@@ -221,6 +218,7 @@ export const useGeolocation = (customOptions = {}) => {
     return coords;
   }, [simulateOnSite, activeAssignedSite]);
 
+  // Robust multi-stage location acquisition
   const getCurrentPosition = useCallback(() => {
     return new Promise((resolve) => {
       if (simulateOnSite && activeAssignedSite) {
@@ -231,68 +229,141 @@ export const useGeolocation = (customOptions = {}) => {
         return;
       }
 
-      if (!navigator.geolocation) {
-        if (activeAssignedSite) {
-          const siteCoords = generateSiteAnchoredCoords(activeAssignedSite);
-          setCoordinates(siteCoords);
-          setLoading(false);
-          resolve(siteCoords);
-        } else {
-          setError('Geolocation is not supported by your browser or device.');
-          setLoading(false);
-          resolve(coordinates);
-        }
+      if (typeof window === 'undefined' || !navigator.geolocation) {
+        const msg = 'Geolocation is not supported by your browser or device.';
+        setError(msg);
+        setLoading(false);
+        resolve(null);
         return;
       }
 
-      if (!isAcquiredRef.current) {
-        setLoading(true);
-      }
+      setLoading(true);
       setError(null);
+
+      // Strategy:
+      // 1. Try high-accuracy (GPS hardware if mobile / precise wifi) with 10s timeout
+      // 2. If it times out or fails (POSITION_UNAVAILABLE), fallback to standard accuracy (wifi/network triangulation)
+      // 3. If standard accuracy fails (e.g. desktop location services disabled), fallback to IP-based location so user gets their actual city/region
+      const tryFallback = (primaryError) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const coords = handlePositionSuccess(pos);
+            resolve(coords);
+          },
+          async (secondaryError) => {
+            console.warn('Geolocation secondary attempt failed:', secondaryError);
+
+            // IP-based real location fallback
+            try {
+              const res = await fetch('https://ipapi.co/json/');
+              if (res.ok) {
+                const data = await res.json();
+                if (data.latitude && data.longitude) {
+                  const ipCoords = {
+                    latitude: Number(Number(data.latitude).toFixed(6)),
+                    longitude: Number(Number(data.longitude).toFixed(6)),
+                    accuracy: 5000,
+                    heading: null,
+                    speed: null,
+                    isRealGps: true,
+                    isSiteAnchored: false,
+                    isIpFallback: true,
+                    city: data.city,
+                  };
+                  setCoordinates(ipCoords);
+                  saveCachedCoordinates(ipCoords);
+                  setLoading(false);
+                  setError(null);
+                  resolve(ipCoords);
+                  return;
+                }
+              }
+            } catch (ipErr) {
+              console.debug('IP location fallback unavailable:', ipErr);
+            }
+
+            let errorMsg = 'GPS signal unavailable. Please ensure location services are enabled.';
+            if (secondaryError?.code === 1 || primaryError?.code === 1) {
+              errorMsg = 'Location permission denied. Please allow location access in your browser address bar.';
+              setPermissionState('denied');
+            } else if (secondaryError?.code === 2) {
+              errorMsg = 'Position unavailable. Please check your network or GPS connection.';
+            } else if (secondaryError?.code === 3) {
+              errorMsg = 'Location request timed out. Please click Refresh to try again.';
+            }
+
+            setError(errorMsg);
+            setLoading(false);
+            resolve(null);
+          },
+          { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+        );
+      };
 
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          const fresh = handlePositionSuccess(pos);
-          resolve(fresh);
+          const coords = handlePositionSuccess(pos);
+          resolve(coords);
         },
-        () => {
-          // Fallback if satellite lock times out
-          if (coordinates.latitude) {
+        (err) => {
+          if (err.code === 1) {
+            // Permission denied - do not retry
+            setError('Location permission denied. Please allow location access in your browser address bar.');
+            setPermissionState('denied');
             setLoading(false);
-            resolve(coordinates);
-            return;
+            resolve(null);
+          } else {
+            tryFallback(err);
           }
-
-          if (activeAssignedSite) {
-            const siteCoords = generateSiteAnchoredCoords(activeAssignedSite);
-            setCoordinates(siteCoords);
-            setLoading(false);
-            resolve(siteCoords);
-            return;
-          }
-
-          setError('GPS signal unavailable. Please ensure location services are enabled.');
-          setLoading(false);
-          resolve(coordinates);
         },
         options
       );
     });
-  }, [options, coordinates, handlePositionSuccess, simulateOnSite, activeAssignedSite]);
+  }, [options, handlePositionSuccess, simulateOnSite, activeAssignedSite]);
 
   useEffect(() => {
     checkPermission();
 
-    if (!simulateOnSite && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        handlePositionSuccess,
-        () => {},
-        { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 }
-      );
+    // Trigger fresh position check on mount
+    getCurrentPosition();
+
+    // Keep position updated via watchPosition if available
+    let watchId = null;
+    if (!simulateOnSite && typeof window !== 'undefined' && navigator.geolocation) {
+      try {
+        watchId = navigator.geolocation.watchPosition(
+          (pos) => {
+            handlePositionSuccess(pos);
+          },
+          (err) => {
+            console.debug('watchPosition status:', err?.message || err);
+          },
+          { enableHighAccuracy: false, maximumAge: 15000, timeout: 20000 }
+        );
+      } catch (err) {
+        console.debug('Failed to initialize watchPosition:', err);
+      }
     }
 
-    getCurrentPosition();
+    return () => {
+      if (watchId !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
   }, []);
+
+  const anchorToSite = useCallback((site) => {
+    if (!site) return;
+    saveStoredAssignedSite(site);
+    if (simulateOnSite) {
+      const siteCoords = generateSiteAnchoredCoords(site);
+      if (siteCoords) {
+        setCoordinates(siteCoords);
+        setLoading(false);
+        setError(null);
+      }
+    }
+  }, [simulateOnSite]);
 
   return {
     coordinates,
@@ -300,5 +371,6 @@ export const useGeolocation = (customOptions = {}) => {
     loading,
     permissionState,
     refreshLocation: getCurrentPosition,
+    anchorToSite,
   };
 };

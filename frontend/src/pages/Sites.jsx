@@ -291,24 +291,96 @@ const Sites = () => {
     setShowResultsDropdown(false);
   };
 
+  const reverseGeocode = async (lat, lng) => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`;
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'Accept-Language': 'en' },
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.display_name) {
+          const shortName = data.name || data.address?.suburb || data.address?.road || data.display_name.split(',')[0];
+          return {
+            displayName: data.display_name,
+            shortName: shortName ? shortName.trim() : '',
+          };
+        }
+      }
+    } catch (_) {}
+    return null;
+  };
+
   const handlePinCurrentLocation = () => {
     if (!navigator.geolocation) {
       showToast('Geolocation is not supported by your browser.', 'error');
       return;
     }
+    setSearching(true);
     showToast('Acquiring device GPS position...', 'info');
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
         const lat = Number(pos.coords.latitude.toFixed(6));
         const lng = Number(pos.coords.longitude.toFixed(6));
+
+        // Immediately update coordinates
         setFormData((prev) => ({
           ...prev,
           latitude: lat,
           longitude: lng,
         }));
-        showToast(`📍 GPS tagged: ${lat}, ${lng}`, 'success');
+
+        // Set placeholder while reverse geocoding resolves
+        const initialText = `${lat}, ${lng}`;
+        setSearchLocationQuery(initialText);
+        setFormData((prev) => ({
+          ...prev,
+          address: initialText,
+        }));
+
+        // Reverse-geocode to fetch real street / city address
+        const rev = await reverseGeocode(lat, lng);
+        setSearching(false);
+
+        if (rev && rev.displayName) {
+          setSearchLocationQuery(rev.displayName);
+          setFormData((prev) => ({
+            ...prev,
+            address: rev.displayName,
+            name: prev.name ? prev.name : (rev.shortName || rev.displayName.split(',')[0]),
+          }));
+          showToast(`📍 Current location pinned: ${rev.shortName || 'GPS Location'}`, 'success');
+        } else {
+          // If reverse geocoding is unavailable, check local preset nearby
+          const nearbyPreset = PRESET_LOCATIONS.find(
+            (p) => Math.abs(p.latitude - lat) < 0.05 && Math.abs(p.longitude - lng) < 0.05
+          );
+          if (nearbyPreset) {
+            setSearchLocationQuery(nearbyPreset.address);
+            setFormData((prev) => ({
+              ...prev,
+              address: nearbyPreset.address,
+              name: prev.name ? prev.name : nearbyPreset.name,
+            }));
+            showToast(`📍 Pinned near ${nearbyPreset.name}`, 'success');
+          } else {
+            const gpsLabel = `Current Location (${lat}, ${lng})`;
+            setSearchLocationQuery(gpsLabel);
+            setFormData((prev) => ({
+              ...prev,
+              address: gpsLabel,
+              name: prev.name ? prev.name : 'Current Site Location',
+            }));
+            showToast(`📍 GPS tagged: ${lat}, ${lng}`, 'success');
+          }
+        }
       },
       (err) => {
+        setSearching(false);
         showToast(`Could not acquire GPS: ${err.message}`, 'error');
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -565,9 +637,14 @@ const Sites = () => {
               <button
                 type="button"
                 onClick={handlePinCurrentLocation}
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1 rounded-lg border border-brand-200 transition-colors w-fit shadow-2xs"
+                disabled={searching}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1 rounded-lg border border-brand-200 transition-colors w-fit shadow-2xs cursor-pointer disabled:opacity-60"
               >
-                <LocateFixed className="w-3.5 h-3.5 text-brand-600" />
+                {searching ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-600" />
+                ) : (
+                  <LocateFixed className="w-3.5 h-3.5 text-brand-600" />
+                )}
                 <span>Pin My Current GPS</span>
               </button>
             </div>
@@ -684,12 +761,26 @@ const Sites = () => {
                 geofenceRadius={Number(formData.attendanceRadius) || 500}
                 showGeofence={true}
                 isPicker={true}
-                onLocationSelect={(coords) => {
+                onLocationSelect={async (coords) => {
+                  const lat = Number(Number(coords.latitude).toFixed(6));
+                  const lng = Number(Number(coords.longitude).toFixed(6));
                   setFormData((prev) => ({
                     ...prev,
-                    latitude: coords.latitude,
-                    longitude: coords.longitude,
+                    latitude: lat,
+                    longitude: lng,
                   }));
+                  const quickLabel = `${lat}, ${lng}`;
+                  setSearchLocationQuery(quickLabel);
+                  setFormData((prev) => ({ ...prev, address: quickLabel }));
+                  const rev = await reverseGeocode(lat, lng);
+                  if (rev && rev.displayName) {
+                    setSearchLocationQuery(rev.displayName);
+                    setFormData((prev) => ({
+                      ...prev,
+                      address: rev.displayName,
+                      name: prev.name ? prev.name : rev.shortName,
+                    }));
+                  }
                 }}
               />
             </div>

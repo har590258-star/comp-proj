@@ -28,20 +28,28 @@ OFFICIAL_HOLIDAYS_2026 = {
 class ReportService:
     async def get_attendance_report(self, filters: AttendanceReportFilter) -> Dict[str, Any]:
         attendance_col = get_collection("attendance")
-        query: Dict[str, Any] = {}
+        conditions = []
 
         if filters.siteId and filters.siteId != "all":
-            query["siteId"] = filters.siteId
+            sites_col = get_collection("sites")
+            site_doc = await sites_col.find_one({"$or": [{"id": filters.siteId}, {"_id": filters.siteId}, {"code": filters.siteId}]}) if sites_col is not None else None
+            site_name = site_doc.get("name") if site_doc else None
+            if site_name:
+                conditions.append({"$or": [{"siteId": filters.siteId}, {"siteName": site_name}]})
+            else:
+                conditions.append({"siteId": filters.siteId})
         if filters.employeeId and filters.employeeId != "all":
-            query["employeeId"] = filters.employeeId
+            conditions.append({"employeeId": filters.employeeId})
         if filters.status and filters.status != "all":
-            query["status"] = filters.status
+            conditions.append({"status": filters.status})
         if filters.fromDate and filters.toDate:
-            query["date"] = {"$gte": filters.fromDate, "$lte": filters.toDate}
+            conditions.append({"date": {"$gte": filters.fromDate, "$lte": filters.toDate}})
         elif filters.fromDate:
-            query["date"] = {"$gte": filters.fromDate}
+            conditions.append({"date": {"$gte": filters.fromDate}})
         elif filters.toDate:
-            query["date"] = {"$lte": filters.toDate}
+            conditions.append({"date": {"$lte": filters.toDate}})
+
+        query: Dict[str, Any] = {"$and": conditions} if len(conditions) > 1 else (conditions[0] if conditions else {})
 
         records = await attendance_col.find(query).sort("date", -1).to_list(1000)
         formatted_records = []
@@ -61,6 +69,19 @@ class ReportService:
                 absent_cnt += 1
             elif status == "Checked Out":
                 checked_out_cnt += 1
+
+            if not item.get("distanceTraveledFormatted") and item.get("checkInLocation") and item.get("checkOutLocation"):
+                cin = item["checkInLocation"]
+                cout = item["checkOutLocation"]
+                if isinstance(cin, dict) and isinstance(cout, dict):
+                    cin_lat, cin_lon = cin.get("latitude"), cin.get("longitude")
+                    cout_lat, cout_lon = cout.get("latitude"), cout.get("longitude")
+                    if cin_lat is not None and cout_lat is not None:
+                        from app.utils.geo import calculate_haversine_distance, format_distance
+                        d = calculate_haversine_distance(cin_lat, cin_lon, cout_lat, cout_lon)
+                        item["distanceTraveledMeters"] = round(d, 1)
+                        item["distanceTraveledFormatted"] = format_distance(d)
+
             formatted_records.append(item)
 
         total = len(formatted_records)
@@ -140,21 +161,37 @@ class ReportService:
         if filters.employeeId and filters.employeeId != "all":
             emp_query["employeeId"] = filters.employeeId
         if filters.siteId and filters.siteId != "all":
-            emp_query["assignedSiteId"] = filters.siteId
+            emp_query["$or"] = [
+                {"assignedSiteId": filters.siteId},
+                {"assignedSiteIds": filters.siteId}
+            ]
 
         employees = await employees_col.find(emp_query).sort("employeeId", 1).to_list(200)
         if not employees:
             # Fallback to users collection
             users_col = get_collection("users")
-            user_query = {"role": {"$ne": "admin"}}
+            user_query: Dict[str, Any] = {"role": {"$ne": "admin"}}
             if filters.employeeId and filters.employeeId != "all":
                 user_query["employeeId"] = filters.employeeId
+            if filters.siteId and filters.siteId != "all":
+                user_query["$or"] = [
+                    {"assignedSiteId": filters.siteId},
+                    {"assignedSiteIds": filters.siteId}
+                ]
             employees = await users_col.find(user_query).sort("employeeId", 1).to_list(200)
 
         # 2. Fetch Sites map for location labels
         sites_col = get_collection("sites")
         sites_list = await sites_col.find({}).to_list(100)
-        site_map = {s.get("id"): s.get("name") for s in sites_list}
+        site_map = {}
+        for s in sites_list:
+            name = s.get("name")
+            if s.get("id"):
+                site_map[str(s["id"])] = name
+            if s.get("_id"):
+                site_map[str(s["_id"])] = name
+            if s.get("code"):
+                site_map[str(s["code"])] = name
 
         location_title = "All Locations"
         if filters.siteId and filters.siteId != "all":
@@ -167,7 +204,14 @@ class ReportService:
             "date": {"$regex": f"^{month_prefix}"}
         }
         if filters.siteId and filters.siteId != "all":
-            att_query["siteId"] = filters.siteId
+            site_target_name = site_map.get(filters.siteId)
+            if site_target_name:
+                att_query["$or"] = [
+                    {"siteId": filters.siteId},
+                    {"siteName": site_target_name}
+                ]
+            else:
+                att_query["siteId"] = filters.siteId
         if filters.employeeId and filters.employeeId != "all":
             att_query["employeeId"] = filters.employeeId
 
@@ -459,7 +503,7 @@ class ReportService:
 
         detail_headers = [
             "Date", "Employee ID", "Employee Name", "Site Name", "Status",
-            "Check-In Time", "Check-Out Time", "Working Hours",
+            "Check-In Time", "Check-Out Time", "Working Hours", "Shift Distance",
             "Check-In Latitude", "Check-In Longitude", "Check-Out Latitude", "Check-Out Longitude"
         ]
 
@@ -471,7 +515,7 @@ class ReportService:
             cell.alignment = align_center
             cell.border = border_thin
 
-        detail_widths = [14, 16, 24, 22, 14, 15, 15, 15, 18, 18, 18, 18]
+        detail_widths = [14, 16, 24, 22, 14, 15, 15, 15, 16, 18, 18, 18, 18]
         for idx, w in enumerate(detail_widths, 1):
             ws_detail.column_dimensions[get_column_letter(idx)].width = w
 
@@ -479,6 +523,16 @@ class ReportService:
             ws_detail.row_dimensions[r_idx].height = 19
             cin_loc = r.get("checkInLocation") or {}
             cout_loc = r.get("checkOutLocation") or {}
+
+            # Distance formatted
+            dist_fmt = r.get("distanceTraveledFormatted")
+            if not dist_fmt and cin_loc and cout_loc:
+                if isinstance(cin_loc, dict) and isinstance(cout_loc, dict):
+                    c1_lat, c1_lon = cin_loc.get("latitude"), cin_loc.get("longitude")
+                    c2_lat, c2_lon = cout_loc.get("latitude"), cout_loc.get("longitude")
+                    if c1_lat is not None and c2_lat is not None:
+                        from app.utils.geo import calculate_haversine_distance, format_distance
+                        dist_fmt = format_distance(calculate_haversine_distance(c1_lat, c1_lon, c2_lat, c2_lon))
 
             row_vals = [
                 r.get("date", ""),
@@ -489,6 +543,7 @@ class ReportService:
                 r.get("checkInTime", "--"),
                 r.get("checkOutTime", "--"),
                 r.get("workingHours", "--"),
+                dist_fmt or "--",
                 cin_loc.get("latitude", "") if isinstance(cin_loc, dict) else "",
                 cin_loc.get("longitude", "") if isinstance(cin_loc, dict) else "",
                 cout_loc.get("latitude", "") if isinstance(cout_loc, dict) else "",

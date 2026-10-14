@@ -18,6 +18,8 @@ async def list_sites(
 
     target_emp_id = employee_id
     is_admin = False
+    assigned_ids = []
+    assigned_names = []
 
     # Check caller authentication credentials
     if token:
@@ -73,6 +75,19 @@ async def list_sites(
         })
         item["assignedEmployeesCount"] = cnt
         results.append(item)
+
+    # Sort results according to employee's assigned order if scoped to an employee
+    if not is_admin and target_emp_id and (assigned_ids or assigned_names):
+        def site_order_key(st):
+            sid = str(st.get("id"))
+            sname = st.get("name")
+            if sid in assigned_ids:
+                return (0, assigned_ids.index(sid))
+            if sname in assigned_names:
+                return (1, assigned_names.index(sname))
+            return (2, 999)
+        results.sort(key=site_order_key)
+
     return results
 
 @router.post("", response_model=SiteOut, status_code=status.HTTP_201_CREATED)
@@ -92,16 +107,21 @@ async def get_site(id: str, token: Optional[str] = Depends(oauth2_scheme)):
     employees_col = get_collection("employees")
     users_col = get_collection("users")
 
-    # If caller is non-admin, verify this is their assigned site
+    # If caller is non-admin, verify this is one of their assigned sites
     if token:
         payload = decode_access_token(token)
         if payload and payload.get("role") != "admin":
             emp_id = payload.get("employee_id") or payload.get("sub")
             emp = await employees_col.find_one({"employeeId": emp_id}) or await users_col.find_one({"employeeId": emp_id})
             if emp:
-                assigned_id = emp.get("assignedSiteId")
-                assigned_name = emp.get("assignedSiteName")
-                if id not in [assigned_id, assigned_name]:
+                allowed_ids = list(emp.get("assignedSiteIds") or [])
+                if emp.get("assignedSiteId") and emp.get("assignedSiteId") not in allowed_ids:
+                    allowed_ids.append(emp.get("assignedSiteId"))
+                allowed_names = list(emp.get("assignedSiteNames") or [])
+                if emp.get("assignedSiteName") and emp.get("assignedSiteName") not in allowed_names:
+                    allowed_names.append(emp.get("assignedSiteName"))
+
+                if id not in allowed_ids and id not in allowed_names:
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="Access restricted: You are only authorized to view your assigned site."

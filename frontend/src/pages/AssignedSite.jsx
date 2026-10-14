@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   MapPin,
@@ -17,7 +17,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useGeolocation } from '../hooks/useGeolocation';
+import { useGeolocation, saveStoredAssignedSite } from '../hooks/useGeolocation';
 import { calculateDistanceMeters, formatDistance } from '../utils/geoUtils';
 import api from '../services/api';
 import Card from '../components/ui/Card';
@@ -27,6 +27,8 @@ import { useToast } from '../components/ui/Toast';
 
 const AssignedSite = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const querySiteId = searchParams.get('siteId');
   const { user, refreshUser } = useAuth();
   const { showToast } = useToast();
 
@@ -39,24 +41,24 @@ const AssignedSite = () => {
       if (saved) return JSON.parse(saved);
     } catch (_) {}
     return {
-      id: user?.assignedSiteId || 'site_2949e4fc',
-      name: user?.assignedSiteName || 'Surat ST-1',
-      code: 'ADN-SITE-010',
-      address: 'Adajan, Surat, Gujarat',
+      id: user?.assignedSiteId || 'site_9c0c0e67',
+      name: user?.assignedSiteName || 'Jain sos',
+      code: 'ADN-SITE-004',
+      address: 'Jain sos',
       distance: '--',
-      manager: 'Dhaval Patel',
+      manager: 'Operations Lead',
       managerPhone: '+91 98220 12345',
-      managerEmail: 'ops.surat@adani.com',
+      managerEmail: 'ops@adani.com',
       workingHours: '09:00 AM - 06:00 PM',
-      latitude: 21.1926,
-      longitude: 72.7997,
+      latitude: 12.960876,
+      longitude: 77.585353,
       attendanceRadius: 500,
       imageUrl: '/assets/site_photo.jpg',
       assignedStaffCount: 16,
     };
   });
 
-  const { coordinates, refreshLocation } = useGeolocation({ assignedSite: site });
+  const { coordinates, refreshLocation, anchorToSite } = useGeolocation({ assignedSite: site });
 
   // Anchor live coordinates to assigned site
   const siteLat = site.latitude !== undefined && site.latitude !== null ? Number(site.latitude) : null;
@@ -65,13 +67,6 @@ const AssignedSite = () => {
 
   let activeLat = coordinates.latitude;
   let activeLng = coordinates.longitude;
-
-  if (activeLat === null || activeLng === null) {
-    if (hasSiteCoords) {
-      activeLat = siteLat;
-      activeLng = siteLng;
-    }
-  }
 
   const hasLiveGps = activeLat !== null && activeLng !== null;
 
@@ -89,7 +84,7 @@ const AssignedSite = () => {
   useEffect(() => {
     if (refreshUser) refreshUser();
     fetchAssignedSite();
-  }, [user?.employeeId, user?.assignedSiteId, user?.assignedSiteIds]);
+  }, [user?.employeeId, user?.assignedSiteId, user?.assignedSiteIds, querySiteId]);
 
   const fetchAssignedSite = async () => {
     try {
@@ -98,9 +93,31 @@ const AssignedSite = () => {
       const res = await api.get('/sites', {
         params: { employee_id: empId }
       });
-      if (res.data && res.data.length > 0) {
-        setAssignedSites(res.data);
-        setSiteData(res.data[0]);
+      const siteList = res.data || [];
+      if (siteList.length > 0) {
+        setAssignedSites(siteList);
+
+        // Find match: Priority 1: URL ?siteId, Priority 2: saved in storage, Priority 3: user.assignedSiteId, Priority 4: first site
+        let matched = null;
+        if (querySiteId) {
+          matched = siteList.find(s => s.id === querySiteId || s._id === querySiteId);
+        }
+        if (!matched) {
+          try {
+            const savedStr = sessionStorage.getItem('adani_assigned_site') || localStorage.getItem('adani_assigned_site');
+            if (savedStr) {
+              const savedObj = JSON.parse(savedStr);
+              matched = siteList.find(s => s.id === savedObj.id || s._id === savedObj.id);
+            }
+          } catch (_) {}
+        }
+        if (!matched && user?.assignedSiteId) {
+          matched = siteList.find(s => s.id === user.assignedSiteId || s._id === user.assignedSiteId);
+        }
+        const chosen = matched || siteList[0];
+        const chosenIdx = siteList.findIndex(s => s.id === chosen.id);
+        setActiveSiteIndex(chosenIdx >= 0 ? chosenIdx : 0);
+        setSiteData(chosen);
         return;
       }
 
@@ -108,7 +125,9 @@ const AssignedSite = () => {
       const empRes = await api.get(`/employees/${empId}`);
       if (empRes.data?.assignedSites && empRes.data.assignedSites.length > 0) {
         setAssignedSites(empRes.data.assignedSites);
-        setSiteData(empRes.data.assignedSites[0]);
+        const chosen = empRes.data.assignedSites[0];
+        setActiveSiteIndex(0);
+        setSiteData(chosen);
         return;
       }
       if (empRes.data?.assignedSiteIds && empRes.data.assignedSiteIds.length > 0) {
@@ -121,6 +140,7 @@ const AssignedSite = () => {
         }
         if (fetchedList.length > 0) {
           setAssignedSites(fetchedList);
+          setActiveSiteIndex(0);
           setSiteData(fetchedList[0]);
           return;
         }
@@ -131,10 +151,7 @@ const AssignedSite = () => {
   };
 
   const setSiteData = (s) => {
-    try {
-      sessionStorage.setItem('adani_assigned_site', JSON.stringify(s));
-      localStorage.setItem('adani_assigned_site', JSON.stringify(s));
-    } catch (_) {}
+    saveStoredAssignedSite(s);
     setSite({
       id: s.id,
       name: s.name,
@@ -155,8 +172,14 @@ const AssignedSite = () => {
 
   const selectActiveSite = (idx) => {
     if (assignedSites[idx]) {
+      const chosen = assignedSites[idx];
       setActiveSiteIndex(idx);
-      setSiteData(assignedSites[idx]);
+      setSiteData(chosen);
+      setSearchParams({ siteId: chosen.id });
+      if (anchorToSite) {
+        anchorToSite(chosen);
+      }
+      showToast(`Selected Substation: ${chosen.name}`, 'info');
     }
   };
 
@@ -592,7 +615,10 @@ const AssignedSite = () => {
                     <Button
                       variant="primary"
                       size="sm"
-                      onClick={() => navigate(`/check-in?siteId=${sub.id}`)}
+                      onClick={() => {
+                        saveStoredAssignedSite(sub);
+                        navigate(`/check-in?siteId=${sub.id}`);
+                      }}
                       className="flex-1 text-xs py-1.5 bg-emerald-600 hover:bg-emerald-500"
                     >
                       Check-In Here

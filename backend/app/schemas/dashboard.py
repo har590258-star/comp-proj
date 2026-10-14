@@ -11,6 +11,7 @@ class RecentAttendanceItem(BaseModel):
     checkIn: Optional[str] = None
     checkOut: Optional[str] = None
     workingHours: Optional[str] = None
+    distanceTraveledFormatted: Optional[str] = None
 
 class ChartDataPoint(BaseModel):
     name: str

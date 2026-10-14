@@ -38,7 +38,7 @@ import {
   Pie,
 } from 'recharts';
 import { useAuth } from '../context/AuthContext';
-import { useGeolocation } from '../hooks/useGeolocation';
+import { useGeolocation, saveStoredAssignedSite, getStoredAssignedSite } from '../hooks/useGeolocation';
 import api from '../services/api';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -95,6 +95,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [showHolidayModal, setShowHolidayModal] = useState(false);
 
+  const [assignedSites, setAssignedSites] = useState([]);
   // Initialize assigned site from session/local storage for immediate rendering
   const [assignedSite, setAssignedSite] = useState(() => {
     try {
@@ -106,7 +107,7 @@ const Dashboard = () => {
   });
 
   // Fetch location anchored to assigned site
-  const { coordinates, refreshLocation } = useGeolocation({ assignedSite });
+  const { coordinates, refreshLocation, anchorToSite } = useGeolocation({ assignedSite });
 
   // Dynamic shift status based on employee
   const [todayStatus, setTodayStatus] = useState({
@@ -153,27 +154,33 @@ const Dashboard = () => {
   const fetchAssignedSite = async () => {
     try {
       const empId = user?.employeeId || 'EMP001';
-      const empRes = await api.get(`/employees/${empId}`);
-      if (empRes.data?.assignedSiteId) {
-        try {
-          const siteRes = await api.get(`/sites/${empRes.data.assignedSiteId}`);
-          if (siteRes.data) {
-            setAssignedSite(siteRes.data);
-            try {
-              sessionStorage.setItem('adani_assigned_site', JSON.stringify(siteRes.data));
-              localStorage.setItem('adani_assigned_site', JSON.stringify(siteRes.data));
-            } catch (_) {}
-            return;
-          }
-        } catch (_) {}
-      }
       const res = await api.get('/sites', { params: { employee_id: empId } });
-      if (res.data && res.data.length > 0) {
-        setAssignedSite(res.data[0]);
-        try {
-          sessionStorage.setItem('adani_assigned_site', JSON.stringify(res.data[0]));
-          localStorage.setItem('adani_assigned_site', JSON.stringify(res.data[0]));
-        } catch (_) {}
+      const userSites = res.data || [];
+      if (userSites.length > 0) {
+        setAssignedSites(userSites);
+
+        // Preserve currently stored site if authorized
+        const stored = getStoredAssignedSite();
+        const matched = stored?.id
+          ? userSites.find(s => s.id === stored.id || s._id === stored.id)
+          : null;
+
+        const primaryMatch = user?.assignedSiteId
+          ? userSites.find(s => s.id === user.assignedSiteId || s._id === user.assignedSiteId)
+          : null;
+
+        const chosen = matched || primaryMatch || userSites[0];
+        setAssignedSite(chosen);
+        saveStoredAssignedSite(chosen);
+        return;
+      }
+
+      const empRes = await api.get(`/employees/${empId}`);
+      if (empRes.data?.assignedSites && empRes.data.assignedSites.length > 0) {
+        setAssignedSites(empRes.data.assignedSites);
+        const chosen = empRes.data.assignedSites[0];
+        setAssignedSite(chosen);
+        saveStoredAssignedSite(chosen);
       }
     } catch (e) {
       console.warn('Dashboard assigned site fetch:', e);
@@ -273,6 +280,9 @@ const Dashboard = () => {
           siteName: res.data.siteName || user?.assignedSiteName || 'Field Operations',
           siteAddress: 'Live Field Deployment Zone',
           workingHours: res.data.workingHours || 'Active',
+          distanceTraveledFormatted: res.data.distanceTraveledFormatted || null,
+          checkInLat: res.data.checkInLocation?.latitude != null ? Number(res.data.checkInLocation.latitude) : null,
+          checkInLng: res.data.checkInLocation?.longitude != null ? Number(res.data.checkInLocation.longitude) : null,
         });
       } else {
         setTodayStatus((prev) => ({
@@ -426,16 +436,9 @@ const Dashboard = () => {
       : null;
   const hasSiteCoords = siteLat !== null && siteLng !== null;
 
-  // Real employee device coordinates (Live device GPS in Bangalore)
+  // Real employee device coordinates
   let activeLat = coordinates.latitude;
   let activeLng = coordinates.longitude;
-
-  if (activeLat === null || activeLng === null) {
-    if (hasSiteCoords) {
-      activeLat = siteLat;
-      activeLng = siteLng;
-    }
-  }
 
   const hasGps = activeLat !== null && activeLng !== null;
 
@@ -725,23 +728,39 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Real-time Hours Worked Counter Widget & Action Buttons */}
+          {/* Real-time Hours Worked & Distance Widgets & Action Buttons */}
           <div className="flex flex-wrap items-center gap-4">
             {todayStatus.isCheckedIn && (
-              <div className="flex items-center gap-3.5 bg-black/30 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/20 shadow-inner">
-                <span className="relative flex h-3 w-3 shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-400" />
-                </span>
-                <div className="text-left">
-                  <p className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-emerald-200">
-                    Live Hours Worked
-                  </p>
-                  <p className="font-mono text-xl sm:text-2xl font-black text-white tracking-wider leading-none mt-0.5">
-                    {elapsedFormatted}
-                  </p>
+              <>
+                <div className="flex items-center gap-3.5 bg-black/30 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/20 shadow-inner">
+                  <span className="relative flex h-3 w-3 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-400" />
+                  </span>
+                  <div className="text-left">
+                    <p className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-emerald-200">
+                      Live Hours Worked
+                    </p>
+                    <p className="font-mono text-xl sm:text-2xl font-black text-white tracking-wider leading-none mt-0.5">
+                      {elapsedFormatted}
+                    </p>
+                  </div>
                 </div>
-              </div>
+
+                {todayStatus.checkInLat != null && todayStatus.checkInLng != null && hasGps && (
+                  <div className="flex items-center gap-3.5 bg-black/30 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/20 shadow-inner">
+                    <Navigation className="w-5 h-5 text-blue-300 animate-pulse shrink-0" />
+                    <div className="text-left">
+                      <p className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-blue-200">
+                        Shift Distance (from Check-In)
+                      </p>
+                      <p className="font-mono text-xl sm:text-2xl font-black text-white tracking-wider leading-none mt-0.5">
+                        {formatDistance(calculateDistanceMeters(todayStatus.checkInLat, todayStatus.checkInLng, activeLat, activeLng))}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             <div>
@@ -1046,6 +1065,45 @@ const Dashboard = () => {
 
         {/* Right Column (5 cols): Live Interactive Satellite Map & Site Card */}
         <div className="lg:col-span-5 space-y-7">
+          {/* Multi-Substation Quick Switcher */}
+          {assignedSites.length > 1 && (
+            <Card className="p-4 bg-gradient-to-r from-brand-50/70 via-white to-blue-50/70 border-brand-200 shadow-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <Building2 className="w-4 h-4 text-brand-600" />
+                  Your Assigned Sites ({assignedSites.length})
+                </span>
+                <span className="text-[11px] font-semibold text-slate-400">Click to switch site</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {assignedSites.map((s) => {
+                  const isSelected = (assignedSite?.id === s.id) || (assignedSite?._id === s.id);
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => {
+                        setAssignedSite(s);
+                        saveStoredAssignedSite(s);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border cursor-pointer ${
+                        isSelected
+                          ? 'bg-brand-600 text-white border-brand-700 shadow-xs ring-1 ring-brand-400'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-emerald-400' : 'bg-slate-300'}`} />
+                      <span>{s.name}</span>
+                      <span className={`text-[10px] px-1 py-0.5 rounded font-mono ${isSelected ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                        {s.code || 'ADN'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+
           {/* Interactive Map Preview Card */}
           <Card className="p-6 space-y-4 border-slate-200 shadow-sm">
             <div className="flex items-center justify-between">

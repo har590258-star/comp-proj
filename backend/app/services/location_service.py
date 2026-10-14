@@ -36,12 +36,11 @@ class LocationService:
         if latest_loc and "latitude" in latest_loc and "longitude" in latest_loc:
             user_lat = latest_loc["latitude"]
             user_lon = latest_loc["longitude"]
+            dist_meters = 0.0
+            dist_formatted = "0 m"
             if site_lat is not None and site_lon is not None:
-                dist = calculate_haversine_distance(user_lat, user_lon, site_lat, site_lon)
-                # If logged location was far away in another city/state (> 50 km), calibrate to assigned site
-                if dist > 50000:
-                    user_lat = round(site_lat + 0.00018, 6)
-                    user_lon = round(site_lon + 0.00015, 6)
+                dist_meters = calculate_haversine_distance(user_lat, user_lon, site_lat, site_lon)
+                dist_formatted = format_distance(dist_meters)
 
             return {
                 "employeeId": employee_id,
@@ -53,28 +52,24 @@ class LocationService:
                 "batteryLevel": latest_loc.get("batteryLevel"),
                 "updatedAt": time_str,
                 "siteName": site_name,
-                "distanceToSiteMeters": 25.0,
-                "distanceFormatted": "25 m",
+                "distanceToSiteMeters": round(dist_meters, 1),
+                "distanceFormatted": dist_formatted,
                 "isOnline": True
             }
-
-        # Fallback location fetched based on the assigned site
-        default_lat = round(site_lat + 0.00018, 6) if site_lat is not None else None
-        default_lon = round(site_lon + 0.00015, 6) if site_lon is not None else None
 
         return {
             "employeeId": employee_id,
             "employeeName": emp_name,
-            "latitude": default_lat,
-            "longitude": default_lon,
-            "accuracy": 10 if default_lat else None,
+            "latitude": None,
+            "longitude": None,
+            "accuracy": None,
             "speed": None,
             "batteryLevel": None,
             "updatedAt": time_str,
             "siteName": site_name,
-            "distanceToSiteMeters": 25.0 if default_lat else 0.0,
-            "distanceFormatted": "25 m" if default_lat else "0 m",
-            "isOnline": True
+            "distanceToSiteMeters": None,
+            "distanceFormatted": "--",
+            "isOnline": False
         }
 
     async def get_location_history(self, employee_id: str, limit: int = 50) -> List[Dict[str, Any]]:
@@ -137,21 +132,6 @@ class LocationService:
                 lon = loc.get("longitude")
                 accuracy = loc.get("accuracy", 8)
                 time_str = att.get("checkInTime", "--")
-
-            # Fallback to assigned site if no live coordinates logged yet
-            if lat is None or lon is None:
-                sites_col = get_collection("sites")
-                site_doc = None
-                if sites_col is not None:
-                    if emp.get("assignedSiteId"):
-                        site_doc = await sites_col.find_one({"$or": [{"id": emp["assignedSiteId"]}, {"_id": emp["assignedSiteId"]}]})
-                    if not site_doc and emp.get("assignedSiteName"):
-                        site_doc = await sites_col.find_one({"name": emp["assignedSiteName"]})
-                if site_doc and "latitude" in site_doc and "longitude" in site_doc:
-                    lat = round(site_doc["latitude"] + 0.00018, 6)
-                    lon = round(site_doc["longitude"] + 0.00015, 6)
-                    accuracy = 10
-                    time_str = "Site Anchored"
 
             status = att.get("status", "Not Checked In") if att else "Not Checked In"
 

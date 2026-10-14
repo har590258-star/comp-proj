@@ -33,6 +33,17 @@ async def get_dashboard_stats():
         reverse=True
     )
     for r in sorted_records[:10]:
+        dist_fmt = r.get("distanceTraveledFormatted")
+        if not dist_fmt and r.get("checkInLocation") and r.get("checkOutLocation"):
+            cin = r["checkInLocation"]
+            cout = r["checkOutLocation"]
+            if isinstance(cin, dict) and isinstance(cout, dict):
+                cin_lat, cin_lon = cin.get("latitude"), cin.get("longitude")
+                cout_lat, cout_lon = cout.get("latitude"), cout.get("longitude")
+                if cin_lat is not None and cout_lat is not None:
+                    from app.utils.geo import calculate_haversine_distance, format_distance
+                    dist_fmt = format_distance(calculate_haversine_distance(cin_lat, cin_lon, cout_lat, cout_lon))
+
         recent_items.append(
             RecentAttendanceItem(
                 id=str(r.get("_id", r.get("id", ""))),
@@ -43,7 +54,8 @@ async def get_dashboard_stats():
                 status=r.get("status", "Present"),
                 checkIn=r.get("checkInTime", "--") or "--",
                 checkOut=r.get("checkOutTime", "--") or "--",
-                workingHours=r.get("workingHours", "Active")
+                workingHours=r.get("workingHours", "Active"),
+                distanceTraveledFormatted=dist_fmt or "--"
             )
         )
 
@@ -79,13 +91,24 @@ async def get_dashboard_stats():
     site_wise_stats = []
     for s in sites:
         site_name = s.get("name", "Site")
-        site_id = s.get("id")
+        id_val = str(s.get("id") or s.get("_id") or "")
+        code_val = str(s.get("code") or "")
+        site_identifiers = [x for x in [id_val, str(s.get("_id")), code_val] if x]
+
         site_present = sum(
             1 for r in today_records 
-            if (r.get("siteId") == site_id or r.get("siteName") == site_name) 
+            if (r.get("siteId") in site_identifiers or r.get("siteName") == site_name) 
             and r.get("status") in ["Present", "Checked Out"]
         )
-        site_total = await employees_col.count_documents({"assignedSiteId": site_id, "status": "Active"})
+        site_total = await employees_col.count_documents({
+            "$or": [
+                {"assignedSiteId": {"$in": site_identifiers}},
+                {"assignedSiteIds": {"$in": site_identifiers}},
+                {"assignedSiteName": site_name},
+                {"assignedSiteNames": site_name}
+            ],
+            "status": "Active"
+        })
         site_absent = max(0, site_total - site_present)
         site_wise_stats.append({
             "name": site_name,

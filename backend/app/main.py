@@ -1,4 +1,5 @@
 import os
+import tempfile
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
@@ -91,9 +92,26 @@ app.add_middleware(
 )
 
 # Uploads directory static serving
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
-os.makedirs(os.path.join(UPLOAD_DIR, "attendance"), exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+# On serverless platforms (e.g. Vercel, AWS Lambda), the code directory is read-only (/var/task).
+# Writable temporary files must use /tmp.
+is_serverless = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME") or os.getenv("LAMBDA_TASK_ROOT"))
+
+if is_serverless:
+    UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "uploads")
+else:
+    UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
+
+try:
+    os.makedirs(os.path.join(UPLOAD_DIR, "attendance"), exist_ok=True)
+except OSError:
+    UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "uploads")
+    try:
+        os.makedirs(os.path.join(UPLOAD_DIR, "attendance"), exist_ok=True)
+    except OSError:
+        pass
+
+if os.path.exists(UPLOAD_DIR):
+    app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Ensure database is initialized even on serverless cold starts
 @app.middleware("http")

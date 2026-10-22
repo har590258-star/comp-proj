@@ -3,6 +3,7 @@ import re
 import time
 import base64
 import logging
+import tempfile
 from typing import Tuple, Optional, Dict, Any
 from app.core.config import settings
 
@@ -17,9 +18,24 @@ class CloudStorageService:
         self.is_gcs_active = False
 
         # Local directory fallback
+        # In serverless environments (e.g. Vercel, AWS Lambda), the code directory is read-only (/var/task).
+        # We fall back to tempfile directory (/tmp) when running in serverless or read-only filesystem.
         self.backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        self.local_upload_dir = os.path.join(self.backend_dir, "uploads", "attendance")
-        os.makedirs(self.local_upload_dir, exist_ok=True)
+        is_serverless = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME") or os.getenv("LAMBDA_TASK_ROOT"))
+
+        if is_serverless:
+            self.local_upload_dir = os.path.join(tempfile.gettempdir(), "uploads", "attendance")
+        else:
+            self.local_upload_dir = os.path.join(self.backend_dir, "uploads", "attendance")
+
+        try:
+            os.makedirs(self.local_upload_dir, exist_ok=True)
+        except OSError:
+            self.local_upload_dir = os.path.join(tempfile.gettempdir(), "uploads", "attendance")
+            try:
+                os.makedirs(self.local_upload_dir, exist_ok=True)
+            except OSError as e:
+                logger.warning(f"Notice: Could not create local upload directory: {e}")
 
     def _get_bucket(self):
         """Lazily connects to Google Cloud Storage bucket."""
@@ -102,18 +118,28 @@ class CloudStorageService:
                 logger.warning(f"GCS upload attempt failed ({e}). Falling back to container storage.")
 
         # 2. Local / Server Container Fallback
-        local_filepath = os.path.join(self.local_upload_dir, filename)
-        with open(local_filepath, "wb") as f:
-            f.write(image_bytes)
+        try:
+            os.makedirs(self.local_upload_dir, exist_ok=True)
+            local_filepath = os.path.join(self.local_upload_dir, filename)
+            with open(local_filepath, "wb") as f:
+                f.write(image_bytes)
 
-        photo_url = f"/uploads/attendance/{filename}"
-        logger.info(f"Photo saved to container storage: {local_filepath}")
-        return {
-            "photoUrl": photo_url,
-            "storageType": "local",
-            "gcsBlobName": None,
-            "localPath": local_filepath
-        }
+            photo_url = f"/uploads/attendance/{filename}"
+            logger.info(f"Photo saved to container storage: {local_filepath}")
+            return {
+                "photoUrl": photo_url,
+                "storageType": "local",
+                "gcsBlobName": None,
+                "localPath": local_filepath
+            }
+        except Exception as e:
+            logger.warning(f"Could not save photo to disk ({e}). Falling back to data URI representation.")
+            return {
+                "photoUrl": f"data:image/jpeg;base64,{clean_b64}",
+                "storageType": "data_uri",
+                "gcsBlobName": None,
+                "localPath": None
+            }
 
     def delete_photo(
         self,

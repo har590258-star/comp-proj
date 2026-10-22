@@ -8,9 +8,16 @@ router = APIRouter(prefix="/notifications", tags=["Notifications & Alerts"])
 @router.get("", response_model=NotificationListOut)
 async def get_notifications(
     limit: int = Query(50, ge=1, le=200),
-    unreadOnly: bool = Query(False)
+    unreadOnly: bool = Query(False),
+    role: Optional[str] = Query(None),
+    employeeId: Optional[str] = Query(None)
 ):
-    return await notification_service.get_notifications(limit=limit, unread_only=unreadOnly)
+    return await notification_service.get_notifications(
+        limit=limit,
+        unread_only=unreadOnly,
+        role=role,
+        employee_id=employeeId
+    )
 
 @router.post("/read/{notification_id}")
 async def mark_notification_read(notification_id: str):
@@ -32,6 +39,8 @@ async def create_custom_notification(req: CreateNotificationRequest):
         employee_name=req.employeeName,
         site_id=req.siteId,
         site_name=req.siteName,
-        severity=req.severity
+        severity=req.severity,
+        target_roles=req.targetRoles,
+        target_employee_id=req.targetEmployeeId
     )
     return {"success": True, "notification": created}

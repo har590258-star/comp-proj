@@ -5,14 +5,70 @@ from app.db.mongodb import get_collection
 from app.utils.time_utils import get_ist_now
 
 class NotificationService:
-    async def get_notifications(self, limit: int = 50, unread_only: bool = False) -> Dict[str, Any]:
+    async def get_notifications(
+        self,
+        limit: int = 50,
+        unread_only: bool = False,
+        role: Optional[str] = None,
+        employee_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         col = get_collection("notifications")
         if col is None:
             return {"items": [], "unreadCount": 0}
 
-        query = {}
+        query: Dict[str, Any] = {}
         if unread_only:
             query["isRead"] = False
+
+        norm_role = (role or "").strip().lower()
+        norm_emp_id = (employee_id or "").strip()
+
+        # Role & Target-based Notification Segregation:
+        # 1. Admin & Supervisor see management-level alerts (employee late checkins, early checkouts, half-day alerts, geofence breaches)
+        # 2. Employees ONLY see notifications for changes done TO them by Admin/Supervisor (site shifts, manual attendance/half-day adjustments)
+        if norm_role in ["admin", "supervisor"]:
+            query["$or"] = [
+                {"targetRoles": {"$in": ["admin", "supervisor", "all"]}},
+                {"targetRoles": {"$exists": False}},
+                {"targetRoles": None},
+                {"targetRoles": []},
+            ]
+        elif norm_emp_id:
+            query["$and"] = [
+                {
+                    "$or": [
+                        {"targetEmployeeId": norm_emp_id},
+                        {
+                            "$and": [
+                                {
+                                    "$or": [
+                                        {"targetEmployeeId": None},
+                                        {"targetEmployeeId": ""},
+                                        {"targetEmployeeId": {"$exists": False}}
+                                    ]
+                                },
+                                {"targetRoles": {"$in": ["technician", "employee", "all"]}}
+                            ]
+                        }
+                    ]
+                },
+                # Strictly hide employee-originated action alerts from employee feed
+                {
+                    "type": {"$nin": ["LATE_ATTENDANCE", "GEOFENCE_BREACH", "CHECK_IN", "CHECK_OUT"]}
+                }
+            ]
+        elif norm_role in ["technician", "employee"]:
+            query["$and"] = [
+                {
+                    "$or": [
+                        {"targetEmployeeId": None},
+                        {"targetEmployeeId": ""},
+                        {"targetEmployeeId": {"$exists": False}}
+                    ]
+                },
+                {"targetRoles": {"$in": ["technician", "employee", "all"]}},
+                {"type": {"$nin": ["LATE_ATTENDANCE", "GEOFENCE_BREACH", "CHECK_IN", "CHECK_OUT"]}}
+            ]
 
         docs = await col.find(query).sort("createdAt", -1).to_list(limit)
         items = []
@@ -23,10 +79,12 @@ class NotificationService:
                 del item["_id"]
             items.append(item)
 
-        unread_count = await col.count_documents({"isRead": False})
+        count_query = dict(query)
+        count_query["isRead"] = False
+        unread_count = await col.count_documents(count_query)
 
         # Seed initial realistic notifications if collection is empty
-        if not items and not unread_only:
+        if not items and not unread_only and not norm_emp_id:
             items = await self._seed_default_notifications()
             unread_count = len([i for i in items if not i.get("isRead")])
 
@@ -41,11 +99,22 @@ class NotificationService:
         employee_name: Optional[str] = None,
         site_id: Optional[str] = None,
         site_name: Optional[str] = None,
-        severity: str = "info"
+        severity: str = "info",
+        target_roles: Optional[List[str]] = None,
+        target_employee_id: Optional[str] = None
     ) -> Dict[str, Any]:
         col = get_collection("notifications")
         now_str = get_ist_now().isoformat()
         notif_id = f"notif_{uuid.uuid4().hex[:10]}"
+
+        # Default targets based on notification nature:
+        # Actions performed BY employees (Late, Checkin, Checkout) -> go to Admin & Supervisor
+        # Actions performed FOR employees (Site transfer, manual adjustment) -> go to that Employee
+        if target_roles is None:
+            if type in ["SITE_TRANSFER", "ATTENDANCE_ADJUSTMENT"]:
+                target_roles = ["technician", "employee"]
+            else:
+                target_roles = ["admin", "supervisor"]
 
         doc = {
             "id": notif_id,
@@ -58,6 +127,8 @@ class NotificationService:
             "siteId": site_id,
             "siteName": site_name,
             "severity": severity,
+            "targetRoles": target_roles,
+            "targetEmployeeId": target_employee_id,
             "isRead": False,
             "createdAt": now_str
         }
@@ -102,6 +173,8 @@ class NotificationService:
                 "siteId": "site_pune_2",
                 "siteName": "Pune - Phase 2",
                 "severity": "warning",
+                "targetRoles": ["admin", "supervisor"],
+                "targetEmployeeId": None,
                 "isRead": False,
                 "createdAt": now.isoformat()
             },
@@ -116,6 +189,8 @@ class NotificationService:
                 "siteId": "site_2949e4fc",
                 "siteName": "Surat ST-1",
                 "severity": "success",
+                "targetRoles": ["admin", "supervisor"],
+                "targetEmployeeId": None,
                 "isRead": False,
                 "createdAt": now.isoformat()
             },
@@ -130,6 +205,8 @@ class NotificationService:
                 "siteId": "site_pune_2",
                 "siteName": "Pune - Phase 2",
                 "severity": "danger",
+                "targetRoles": ["admin", "supervisor"],
+                "targetEmployeeId": None,
                 "isRead": True,
                 "createdAt": now.isoformat()
             },
@@ -144,7 +221,24 @@ class NotificationService:
                 "siteId": "site_pune_1",
                 "siteName": "Pune - Phase 1",
                 "severity": "info",
+                "targetRoles": ["admin", "supervisor"],
+                "targetEmployeeId": None,
                 "isRead": True,
+                "createdAt": now.isoformat()
+            },
+            {
+                "id": "notif_005",
+                "_id": "notif_005",
+                "type": "SITE_TRANSFER",
+                "title": "Substation Assignment Notice",
+                "message": "Your deployment site has been assigned to Surat ST-1 by Area Operations Supervisor.",
+                "employeeId": "b4S/Adani/01",
+                "employeeName": "Rohit Sharma",
+                "siteName": "Surat ST-1",
+                "severity": "info",
+                "targetRoles": ["technician", "employee"],
+                "targetEmployeeId": "b4S/Adani/01",
+                "isRead": False,
                 "createdAt": now.isoformat()
             }
         ]

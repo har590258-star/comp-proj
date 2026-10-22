@@ -57,8 +57,16 @@ class InMemoryCollection:
                 if not any(self._matches(doc, cond) for cond in v):
                     return False
                 continue
+            if k == "$and" and isinstance(v, list):
+                if not all(self._matches(doc, cond) for cond in v):
+                    return False
+                continue
             if isinstance(v, dict):
                 doc_val = doc.get(k)
+                if "$exists" in v:
+                    exists = (k in doc and doc[k] is not None)
+                    if exists != bool(v["$exists"]):
+                        return False
                 if "$regex" in v:
                     import re
                     pattern = v["$regex"]
@@ -70,8 +78,20 @@ class InMemoryCollection:
                         if pattern.lower() not in str(doc_val or "").lower():
                             return False
                     continue
-                if "$in" in v and doc_val not in v["$in"]:
-                    return False
+                if "$in" in v:
+                    allowed = v["$in"]
+                    if isinstance(doc_val, list):
+                        if not any(item in allowed for item in doc_val):
+                            return False
+                    elif doc_val not in allowed:
+                        return False
+                if "$nin" in v:
+                    disallowed = v["$nin"]
+                    if isinstance(doc_val, list):
+                        if any(item in disallowed for item in doc_val):
+                            return False
+                    elif doc_val in disallowed:
+                        return False
                 if "$gte" in v and (doc_val is None or doc_val < v["$gte"]):
                     return False
                 if "$lte" in v and (doc_val is None or doc_val > v["$lte"]):

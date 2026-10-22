@@ -227,6 +227,27 @@ async def update_employee(id: str, updates: EmployeeUpdate):
         except Exception:
             pass
 
+    # If site assignment was changed, dispatch notification targeted strictly to this employee
+    new_site_name = update_dict.get("assignedSiteName")
+    old_site_name = existing.get("assignedSiteName")
+    emp_code = existing.get("employeeId")
+    if new_site_name and new_site_name != old_site_name and emp_code:
+        try:
+            from app.services.notification_service import notification_service
+            await notification_service.create_notification(
+                type="SITE_TRANSFER",
+                title="Substation Assignment Updated",
+                message=f"Your assigned deployment site has been updated to '{new_site_name}' by Operations Supervisor/Admin.",
+                employee_id=emp_code,
+                employee_name=existing.get("name"),
+                site_name=new_site_name,
+                severity="info",
+                target_roles=["technician", "employee"],
+                target_employee_id=emp_code
+            )
+        except Exception:
+            pass
+
     updated = await emp_col.find_one(match_query)
     updated_dict = dict(updated)
     updated_dict["id"] = str(updated_dict.get("_id", updated_dict.get("id")))

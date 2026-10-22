@@ -480,7 +480,7 @@ class AttendanceService:
 
         await attendance_col.insert_one(attendance_record)
 
-        # Dispatch alert notification to Admin & Supervisor
+        # Dispatch alert notification to Admin & Supervisor (Employees do not receive management alerts)
         try:
             from app.services.notification_service import notification_service
             if is_late:
@@ -492,18 +492,22 @@ class AttendanceService:
                     employee_name=emp.get("name"),
                     site_id=site.get("id"),
                     site_name=site.get("name"),
-                    severity="warning"
+                    severity="warning",
+                    target_roles=["admin", "supervisor"],
+                    target_employee_id=None
                 )
             else:
                 await notification_service.create_notification(
                     type="CHECK_IN",
                     title="Shift Check-In Verified",
-                    message=f"{emp.get('name')} ({req.employeeId}) checked in at {check_in_time_str} at {site.get('name')} with verified GPS fix.",
+                    message=f"{emp.get('name')} ({req.employeeId}) checked in at {check_in_time_str} at {site.get('name')}.",
                     employee_id=req.employeeId,
                     employee_name=emp.get("name"),
                     site_id=site.get("id"),
                     site_name=site.get("name"),
-                    severity="success"
+                    severity="success",
+                    target_roles=["admin", "supervisor"],
+                    target_employee_id=None
                 )
         except Exception as e:
             logger.warning(f"Notification error: {e}")
@@ -681,20 +685,22 @@ class AttendanceService:
             }
         )
 
-        # Dispatch notification to Admin & Supervisor
+        # Dispatch notification to Admin & Supervisor (Employees do not receive management alerts)
         try:
             from app.services.notification_service import notification_service
             emp_display_name = record.get("employeeName") or req.employeeId
             if is_half_day:
                 await notification_service.create_notification(
                     type="HALF_DAY",
-                    title="Half Day / Early Checkout",
-                    message=f"{emp_display_name} ({req.employeeId}) checked out at {check_out_time_str}. Total duration: {working_hours_str} (Marked as Half Day).",
+                    title="Half Day / Early Checkout Alert",
+                    message=f"{emp_display_name} ({req.employeeId}) checked out at {check_out_time_str}. Total duration: {working_hours_str} (Recorded as Half Day).",
                     employee_id=req.employeeId,
                     employee_name=emp_display_name,
                     site_id=record.get("siteId"),
                     site_name=record.get("siteName"),
-                    severity="warning"
+                    severity="warning",
+                    target_roles=["admin", "supervisor"],
+                    target_employee_id=None
                 )
             else:
                 await notification_service.create_notification(
@@ -705,7 +711,9 @@ class AttendanceService:
                     employee_name=emp_display_name,
                     site_id=record.get("siteId"),
                     site_name=record.get("siteName"),
-                    severity="info"
+                    severity="info",
+                    target_roles=["admin", "supervisor"],
+                    target_employee_id=None
                 )
         except Exception as e:
             logger.warning(f"Notification error: {e}")
@@ -858,6 +866,24 @@ class AttendanceService:
                 update_fields["siteName"] = req.siteName
 
             await attendance_col.update_one({"_id": existing["_id"]}, {"$set": update_fields})
+
+            # Send notification targeted strictly to this employee
+            try:
+                from app.services.notification_service import notification_service
+                await notification_service.create_notification(
+                    type="ATTENDANCE_ADJUSTMENT",
+                    title=f"Shift Status Marked as {status_label}",
+                    message=f"Your shift on {req.date} has been marked as '{status_label}' by Operations Supervisor/Admin. ({remarks_str})",
+                    employee_id=req.employeeId,
+                    employee_name=emp_name,
+                    site_name=site_name,
+                    severity="info" if status_label == "Present" else "warning",
+                    target_roles=["technician", "employee"],
+                    target_employee_id=req.employeeId
+                )
+            except Exception as e:
+                logger.warning(f"Employee notification error: {e}")
+
             return {
                 "success": True,
                 "message": f"Successfully updated attendance for {emp_name} ({req.employeeId}) on {req.date} to {status_label}.",
@@ -885,6 +911,24 @@ class AttendanceService:
                 "remarks": remarks_str
             }
             await attendance_col.insert_one(new_doc)
+
+            # Send notification targeted strictly to this employee
+            try:
+                from app.services.notification_service import notification_service
+                await notification_service.create_notification(
+                    type="ATTENDANCE_ADJUSTMENT",
+                    title=f"Shift Attendance Recorded: {status_label}",
+                    message=f"Your attendance for {req.date} has been recorded as '{status_label}' by Operations Supervisor/Admin.",
+                    employee_id=req.employeeId,
+                    employee_name=emp_name,
+                    site_name=site_name,
+                    severity="info" if status_label == "Present" else "warning",
+                    target_roles=["technician", "employee"],
+                    target_employee_id=req.employeeId
+                )
+            except Exception as e:
+                logger.warning(f"Employee notification error: {e}")
+
             return {
                 "success": True,
                 "message": f"Successfully created {status_label} attendance record for {emp_name} ({req.employeeId}) on {req.date}.",

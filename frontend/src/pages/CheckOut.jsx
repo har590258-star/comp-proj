@@ -11,6 +11,7 @@ import {
   FileCheck2,
   LogIn,
   Navigation,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGeolocation } from '../hooks/useGeolocation';
@@ -209,11 +210,20 @@ const CheckOut = () => {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-              Shift Check-Out & Finalization
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                {isSupervisor ? 'Supervisor Shift Check-Out' : 'Shift Check-Out & Finalization'}
+              </h2>
+              {isSupervisor && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-blue-600 text-white">
+                  Supervisor Desk
+                </span>
+              )}
+            </div>
             <p className="text-xs sm:text-sm text-slate-500">
-              End active shift and log departure telemetry from your current location
+              {isSupervisor
+                ? 'Direct supervisory shift departure sign-off with accurate punch log'
+                : 'End active shift and log departure telemetry from your current location'}
             </p>
           </div>
         </div>
@@ -255,6 +265,124 @@ const CheckOut = () => {
           </div>
         </Card>
       ) : !successData ? (
+        isSupervisor ? (
+          /* SUPERVISOR DIRECT CHECK-OUT CONSOLE (No location map/radar shown, direct check-out with accurate punch time & duration) */
+          <div className="max-w-2xl mx-auto space-y-6">
+            <Card className="p-6 sm:p-8 text-center shadow-lg border-slate-200 bg-white">
+              {/* Top Supervisor Header */}
+              <div className="flex items-center justify-between pb-5 border-b border-slate-100">
+                <div className="flex items-center gap-3 text-left">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center font-bold shadow-xs">
+                    <ShieldCheck className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Supervisory Duty Portal</p>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-blue-600 text-white">
+                        Supervisor
+                      </span>
+                    </div>
+                    <p className="text-base font-extrabold text-slate-900 mt-0.5">{user?.name || 'Area Operations Supervisor'}</p>
+                    <p className="text-xs text-slate-500 font-mono">ID: {user?.employeeId || 'SUPER01'}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Shift Active</span>
+                </div>
+              </div>
+
+              {/* Large Real-Time Clock */}
+              <div className="py-6">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-bold mb-3">
+                  <Clock className="w-3.5 h-3.5 text-brand-600" />
+                  <span>Real-Time Clock (IST)</span>
+                </div>
+                <div className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight font-mono">
+                  {now.toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true,
+                  })}
+                </div>
+                <p className="text-xs text-slate-400 font-medium mt-1">
+                  {now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })}
+                </p>
+              </div>
+
+              {/* Shift Stats Card */}
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-left">
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Punched In At</p>
+                  <p className="text-base font-black text-slate-900 mt-0.5">{shiftData?.checkInTime || '--'}</p>
+                  <p className="text-[11px] text-slate-500">Initial operational arrival</p>
+                </div>
+                <div className="p-3.5 bg-blue-50/70 rounded-2xl border border-blue-200 text-left">
+                  <p className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">Active Shift Duration</p>
+                  <p className="text-base font-black text-blue-900 mt-0.5">{calculateShiftDuration()}</p>
+                  <p className="text-[11px] text-blue-700">Elapsed working time</p>
+                </div>
+              </div>
+
+              {/* Designated Substation / Area Info */}
+              <div className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left mb-6 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center shrink-0">
+                    <Building2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Designated Substation</p>
+                    <p className="text-sm font-extrabold text-slate-900">{siteLocation.name}</p>
+                    <p className="text-xs text-slate-500 font-medium">{siteLocation.address || 'Operational Zone'}</p>
+                  </div>
+                </div>
+                <span className="text-xs font-mono font-bold text-brand-700 bg-brand-50 border border-brand-200 px-2.5 py-1 rounded-lg">
+                  {siteLocation.code || 'ADN-ZONE'}
+                </span>
+              </div>
+
+              {/* Supervisor Direct Checkout Action */}
+              <div className="space-y-4">
+                <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl text-left text-xs text-blue-900 flex items-center gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                  <span>Location verification radar is waived for supervisor check-out. Your departure timestamp and duty hours will be recorded in central operations.</span>
+                </div>
+
+                <Button
+                  variant="danger"
+                  size="lg"
+                  fullWidth
+                  loading={submitting}
+                  onClick={() => setConfirmModalOpen(true)}
+                  className="bg-rose-600 hover:bg-rose-700 text-white font-extrabold py-4 text-base shadow-lg cursor-pointer"
+                >
+                  Supervisor Complete Shift Check-Out Now
+                </Button>
+              </div>
+            </Card>
+
+            {/* Shift Rules Info Widget */}
+            <Card className="p-4 sm:p-5 flex items-center justify-between text-sm border-slate-200 bg-slate-50/80">
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold flex-shrink-0">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-slate-900">Shift Timings & Departure Rules</p>
+                    <span className="text-[10px] font-bold bg-brand-100 text-brand-800 border border-brand-300 px-2 py-0.5 rounded-full">
+                      Shift Policy
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 font-medium mt-0.5">
+                    Supervisory duty departure logs punch time immediately without GPS distance constraints.
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </div>
+        ) : (
         /* Two-Column Layout for Active Shift Check-Out */
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left Column (7 cols): Map and Telemetry Diagnostics */}
@@ -489,6 +617,7 @@ const CheckOut = () => {
             </Card>
           </div>
         </div>
+        )
       ) : (
         /* Completed Summary State */
         <Card className="p-8 text-center flex flex-col items-center max-w-lg mx-auto shadow-xl">
@@ -497,7 +626,7 @@ const CheckOut = () => {
           </div>
           <h3 className="text-2xl font-bold text-slate-900 mb-1">Checked Out Successfully!</h3>
           <p className="text-sm text-slate-500 mb-6">
-            Your shift attendance has been completed and recorded for {user?.name || 'Rahul Sharma'}.
+            Your shift attendance has been completed and recorded for {user?.name || (isSupervisor ? 'Supervisor' : 'Rahul Sharma')}.
           </p>
 
           <div className="w-full bg-slate-50 rounded-2xl p-5 text-xs space-y-3 mb-6 text-left border border-slate-200/80">
@@ -520,9 +649,11 @@ const CheckOut = () => {
               </span>
             </div>
             <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
-              <span className="text-slate-500">Distance Traveled (Check-In to Departure)</span>
+              <span className="text-slate-500">{isSupervisor ? 'Duty Field Type' : 'Distance Traveled (Check-In to Departure)'}</span>
               <span className="font-extrabold text-blue-700 text-sm">
-                {successData?.distanceTraveledFormatted || (successData?.distanceTraveledMeters != null ? `${successData.distanceTraveledMeters} m` : (liveDistanceMeters != null ? formatDistance(liveDistanceMeters) : '--'))}
+                {isSupervisor
+                  ? 'Supervisory Substation Oversight'
+                  : (successData?.distanceTraveledFormatted || (successData?.distanceTraveledMeters != null ? `${successData.distanceTraveledMeters} m` : (liveDistanceMeters != null ? formatDistance(liveDistanceMeters) : '--')))}
               </span>
             </div>
             <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
@@ -532,9 +663,11 @@ const CheckOut = () => {
               </span>
             </div>
             <div className="flex justify-between items-center py-1">
-              <span className="text-slate-500">Departure Location</span>
+              <span className="text-slate-500">{isSupervisor ? 'Verification Mode' : 'Departure Location'}</span>
               <span className="font-mono text-slate-800">
-                {hasGps ? `${activeLat.toFixed(6)}, ${activeLng.toFixed(6)}` : '--'}
+                {isSupervisor
+                  ? 'Supervisor Direct Punch (Waived)'
+                  : (hasGps ? `${activeLat.toFixed(6)}, ${activeLng.toFixed(6)}` : '--')}
               </span>
             </div>
           </div>
@@ -568,7 +701,9 @@ const CheckOut = () => {
             <div>
               <p className="text-sm font-semibold text-slate-900">End Current Working Shift?</p>
               <p className="text-xs text-slate-500 mt-1">
-                Are you sure you want to finalize your shift for today? Your departure GPS coordinates, shift duration, and total travel distance ({liveDistanceMeters !== null ? formatDistance(liveDistanceMeters) : 'calculated on submit'}) will be permanently recorded in the central database.
+                {isSupervisor
+                  ? `Are you sure you want to finalize your supervisory shift for today? Your departure time and total shift duration (${calculateShiftDuration()}) will be logged into central operations.`
+                  : `Are you sure you want to finalize your shift for today? Your departure GPS coordinates, shift duration, and total travel distance (${liveDistanceMeters !== null ? formatDistance(liveDistanceMeters) : 'calculated on submit'}) will be permanently recorded in the central database.`}
               </p>
             </div>
           </div>

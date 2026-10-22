@@ -326,17 +326,21 @@ const CheckIn = () => {
 
     setSubmitting(true);
     try {
-      const finalLat = activeLat ? Number(activeLat) : Number(siteLocation.latitude || 18.5204);
-      const finalLng = activeLng ? Number(activeLng) : Number(siteLocation.longitude || 73.8567);
+      const finalLat = isSupervisor
+        ? (activeSite.latitude ? Number(activeSite.latitude) : 18.5204)
+        : (activeLat ? Number(activeLat) : Number(siteLocation.latitude || 18.5204));
+      const finalLng = isSupervisor
+        ? (activeSite.longitude ? Number(activeSite.longitude) : 73.8567)
+        : (activeLng ? Number(activeLng) : Number(siteLocation.longitude || 73.8567));
 
       const payload = {
-        employeeId: user?.employeeId || 'b4S/Adani/01',
+        employeeId: user?.employeeId || 'SUPER01',
         siteId: activeSite.id || 'site_pune_1',
         latitude: finalLat,
         longitude: finalLng,
-        accuracy: coordinates.accuracy || 10,
+        accuracy: isSupervisor ? 5 : (coordinates.accuracy || 10),
         bypassRadiusCheck: Boolean(isSupervisor),
-        photo: photoData || null,
+        photo: isSupervisor ? null : (photoData || null),
       };
 
       const res = await api.post('/attendance/check-in', payload);
@@ -347,9 +351,10 @@ const CheckIn = () => {
       await fetchTodayStatus();
 
       const recStatus = res.data?.record?.status || (isHalfDayCheckIn ? 'Half Day' : isLateCheckIn ? 'Late' : 'Present');
+      const punchTime = res.data?.record?.checkInTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       showToast(
         isSupervisor
-          ? `Supervisor checked in successfully (${recStatus}) at ${activeSite.name}!`
+          ? `Supervisor punch recorded successfully (${recStatus}) at ${punchTime}!`
           : `Checked in successfully (${recStatus}) with verification at ${activeSite.name}!`,
         'success'
       );
@@ -381,10 +386,12 @@ const CheckIn = () => {
           </button>
           <div>
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-              Field Shift Check-In
+              {isSupervisor ? 'Supervisor Duty Check-In' : 'Field Shift Check-In'}
             </h2>
             <p className="text-xs sm:text-sm text-slate-500">
-              Verify live GPS position at your current field work location
+              {isSupervisor
+                ? 'Supervisor duty punch & shift verification desk'
+                : 'Verify live GPS position at your current field work location'}
             </p>
           </div>
         </div>
@@ -394,6 +401,11 @@ const CheckIn = () => {
             <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 border border-emerald-300 px-3.5 py-1.5 rounded-full text-xs font-bold shadow-xs">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
               <span>Shift Active • Checked In at {todayStatus?.checkInTime}</span>
+            </div>
+          ) : isSupervisor ? (
+            <div className="flex items-center gap-2 bg-blue-50 text-blue-800 border border-blue-300 px-3.5 py-1.5 rounded-full text-xs font-bold shadow-xs">
+              <ShieldCheck className="w-4 h-4 text-blue-600" />
+              <span>Supervisor Portal • Direct Punch Active</span>
             </div>
           ) : isWithinGeofence ? (
             <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 border border-emerald-300 px-3.5 py-1.5 rounded-full text-xs font-bold shadow-xs">
@@ -473,8 +485,173 @@ const CheckIn = () => {
       )}
 
       {!successData ? (
-        /* Two-Column Responsive Enterprise Web Layout */
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        isSupervisor ? (
+          /* SUPERVISOR DIRECT CHECK-IN VIEW (No location map/radar shown, direct check-in with exact timestamp) */
+          <div className="max-w-2xl mx-auto space-y-6">
+            <Card className="p-6 sm:p-8 text-center shadow-lg border-slate-200 bg-white">
+              {/* Top Supervisor Header */}
+              <div className="flex items-center justify-between pb-5 border-b border-slate-100">
+                <div className="flex items-center gap-3 text-left">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center font-bold shadow-xs">
+                    <ShieldCheck className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Supervisory Duty Portal</p>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-blue-600 text-white">
+                        Supervisor
+                      </span>
+                    </div>
+                    <p className="text-base font-extrabold text-slate-900 mt-0.5">{user?.name || 'Area Operations Supervisor'}</p>
+                    <p className="text-xs text-slate-500 font-mono">ID: {user?.employeeId || 'SUPER01'}</p>
+                  </div>
+                </div>
+                {isShiftActive && (
+                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>On Duty</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Large Real-Time Clock */}
+              <div className="py-6">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-bold mb-3">
+                  <Clock className="w-3.5 h-3.5 text-brand-600" />
+                  <span>Indian Standard Time (IST)</span>
+                </div>
+                <h3 className="text-4xl sm:text-5xl font-mono font-extrabold text-slate-900 tracking-tight">
+                  {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-500 font-semibold mt-1.5">
+                  {now.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                </p>
+              </div>
+
+              {/* Shift Timing Notice */}
+              <div className="mb-6">
+                {isHalfDayCheckIn ? (
+                  <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 flex items-center gap-3 text-left">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                    <div className="text-xs">
+                      <span className="font-extrabold">Half-Day Shift Policy Active:</span> Check-ins recorded after 10:30 AM are logged as Half Day attendance.
+                    </div>
+                  </div>
+                ) : isLateCheckIn ? (
+                  <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 flex items-center gap-3 text-left">
+                    <Clock className="w-5 h-5 text-amber-600 shrink-0" />
+                    <div className="text-xs">
+                      <span className="font-extrabold">Late Arrival Window:</span> Shift starts at 09:00 AM. Check-in will be marked as Late.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 flex items-center gap-3 text-left">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <div className="text-xs">
+                      <span className="font-extrabold">On-Time Shift:</span> Standard operational duty hours (09:00 AM - 06:00 PM).
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Assigned Substation / Area Info */}
+              <div className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left mb-6 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center shrink-0">
+                    <Building2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Designated Substation</p>
+                    <p className="text-sm font-extrabold text-slate-900">{activeSite.name}</p>
+                    <p className="text-xs text-slate-500 font-medium">{activeSite.address || 'Operational Zone'}</p>
+                  </div>
+                </div>
+                <span className="text-xs font-mono font-bold text-brand-700 bg-brand-50 border border-brand-200 px-2.5 py-1 rounded-lg">
+                  {activeSite.code || 'ADN-ZONE'}
+                </span>
+              </div>
+
+              {/* State A: Shift Active */}
+              {isShiftActive ? (
+                <div className="space-y-4">
+                  <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-2xl text-left">
+                    <div className="flex items-center gap-2 text-emerald-800 font-extrabold text-sm mb-1">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                      <span>Shift Currently Active</span>
+                    </div>
+                    <p className="text-xs text-emerald-700 font-medium">
+                      Punched in at <strong>{todayStatus?.checkInTime}</strong> • Duration worked: <strong>{getElapsedHoursWorked()}</strong>
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      fullWidth
+                      onClick={() => navigate('/attendance')}
+                    >
+                      View Attendance
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      fullWidth
+                      onClick={() => navigate('/check-out')}
+                      className="bg-brand-600 hover:bg-brand-700 text-white font-extrabold"
+                    >
+                      Go to Check-Out
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                /* State B: Ready to Check In */
+                <div className="space-y-4">
+                  <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl text-left text-xs text-blue-900 flex items-center gap-2.5">
+                    <ShieldCheck className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                    <span>Location verification is waived for supervisor duty check-in. Your punch time will be accurately logged in central operations.</span>
+                  </div>
+
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    fullWidth
+                    loading={submitting}
+                    disabled={isPast6PM}
+                    onClick={handleCheckIn}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-4 text-base shadow-lg cursor-pointer"
+                  >
+                    {isPast6PM
+                      ? 'Shift Check-In Closed (Past 06:00 PM)'
+                      : (todayStatus?.checkOutTime ? 'Supervisor Punch In Again' : 'Supervisor Direct Check-In Now')}
+                  </Button>
+                </div>
+              )}
+            </Card>
+
+            {/* Shift Rules Info Widget */}
+            <Card className="p-4 sm:p-5 flex items-center justify-between text-sm border-slate-200 bg-slate-50/80">
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold flex-shrink-0">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-slate-900">Shift Timings & Rules</p>
+                    <span className="text-[10px] font-bold bg-brand-100 text-brand-800 border border-brand-300 px-2 py-0.5 rounded-full">
+                      Attendance Rules
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 font-medium mt-0.5">
+                    Before 09:00 AM: On-Time | 09:00 - 10:30 AM: Late Checked-In | After 10:30 AM: Half-Day | After 06:00 PM: Auto Checked-Out.
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </div>
+        ) : (
+          /* Two-Column Responsive Enterprise Web Layout for Field Technicians */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left Column (7 cols): Satellite Radar Map & Geofence Diagnostics */}
           <div className="lg:col-span-7 space-y-5">
             <Card className="p-5 space-y-4 shadow-sm border-slate-200">
@@ -990,6 +1167,7 @@ const CheckIn = () => {
             </Card>
           </div>
         </div>
+        )
       ) : (
         /* Completed Summary State */
         <Card className="p-8 text-center flex flex-col items-center max-w-lg mx-auto shadow-xl">
@@ -998,7 +1176,7 @@ const CheckIn = () => {
           </div>
           <h3 className="text-2xl font-bold text-slate-900 mb-1">Check-In Successful!</h3>
           <p className="text-sm text-slate-500 mb-6">
-            Your shift attendance has been recorded for {user?.name || 'Rahul Sharma'}.
+            Your shift attendance has been recorded for {user?.name || (isSupervisor ? 'Supervisor' : 'Rahul Sharma')}.
           </p>
 
           <div className="w-full bg-slate-50 rounded-2xl p-5 text-xs space-y-3 mb-6 text-left border border-slate-200/80">
@@ -1016,12 +1194,14 @@ const CheckIn = () => {
             </div>
             <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
               <span className="text-slate-500">Assignment Zone</span>
-              <span className="font-semibold text-slate-900">{siteLocation.name}</span>
+              <span className="font-semibold text-slate-900">{activeSite?.name || siteLocation.name}</span>
             </div>
             <div className="flex justify-between items-center py-1">
-              <span className="text-slate-500">Location Coordinates</span>
+              <span className="text-slate-500">{isSupervisor ? 'Verification Mode' : 'Location Coordinates'}</span>
               <span className="font-mono text-slate-800">
-                {hasGps ? `${activeLat.toFixed(6)}, ${activeLng.toFixed(6)}` : '--'}
+                {isSupervisor
+                  ? 'Supervisor Direct Punch (Waived)'
+                  : (hasGps ? `${activeLat.toFixed(6)}, ${activeLng.toFixed(6)}` : '--')}
               </span>
             </div>
           </div>

@@ -32,11 +32,15 @@ const Navbar = ({ onOpenMobileMenu, isSyncing, lastSyncedAt }) => {
     fetchNotifications();
     const timer = setInterval(fetchNotifications, 25000);
     return () => clearInterval(timer);
-  }, []);
+  }, [user?.role, user?.employeeId]);
 
   const fetchNotifications = async () => {
     try {
-      const res = await api.get('/notifications?limit=20');
+      const params = new URLSearchParams({ limit: '20' });
+      if (user?.role) params.append('role', user.role);
+      if (user?.employeeId) params.append('employeeId', user.employeeId);
+
+      const res = await api.get(`/notifications?${params.toString()}`);
       if (res.data) {
         setNotifications(res.data.items || []);
         setUnreadCount(res.data.unreadCount || 0);
@@ -170,6 +174,14 @@ const Navbar = ({ onOpenMobileMenu, isSyncing, lastSyncedAt }) => {
                           ) : n.type === 'GEOFENCE_BREACH' ? (
                             <div className="w-6 h-6 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center font-bold">
                               <MapPin className="w-3.5 h-3.5" />
+                            </div>
+                          ) : n.type === 'SITE_TRANSFER' ? (
+                            <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center font-bold">
+                              <Building2 className="w-3.5 h-3.5" />
+                            </div>
+                          ) : n.type === 'ATTENDANCE_ADJUSTMENT' ? (
+                            <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">
+                              <Clock className="w-3.5 h-3.5" />
                             </div>
                           ) : n.type === 'CHECK_OUT' || n.type === 'HALF_DAY' ? (
                             <div className="w-6 h-6 rounded-full bg-blue-100 text-brand-600 flex items-center justify-center font-bold">

@@ -3,7 +3,7 @@ from typing import Optional, List
 
 class NotificationItem(BaseModel):
     id: str
-    type: str  # "LATE_ATTENDANCE", "GEOFENCE_BREACH", "CHECK_IN", "CHECK_OUT", "HALF_DAY", "SYSTEM"
+    type: str  # "LATE_ATTENDANCE", "GEOFENCE_BREACH", "CHECK_IN", "CHECK_OUT", "HALF_DAY", "SITE_TRANSFER", "ATTENDANCE_ADJUSTMENT", "SYSTEM"
     title: str
     message: str
     employeeId: Optional[str] = None
@@ -11,6 +11,8 @@ class NotificationItem(BaseModel):
     siteId: Optional[str] = None
     siteName: Optional[str] = None
     severity: str = "info"  # "info", "warning", "danger", "success"
+    targetRoles: Optional[List[str]] = None
+    targetEmployeeId: Optional[str] = None
     isRead: bool = False
     createdAt: str
 
@@ -27,3 +29,5 @@ class CreateNotificationRequest(BaseModel):
     siteId: Optional[str] = None
     siteName: Optional[str] = None
     severity: str = "info"
+    targetRoles: Optional[List[str]] = None
+    targetEmployeeId: Optional[str] = None

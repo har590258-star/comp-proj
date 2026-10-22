@@ -77,5 +77,25 @@ async def update_attendance_status(attendance_id: str, payload: Dict[str, Any]):
         update_dict["workingHours"] = payload["workingHours"]
 
     await attendance_col.update_one({"_id": existing["_id"]}, {"$set": update_dict})
+
+    # Dispatch notification targeted to the specific employee
+    try:
+        from app.services.notification_service import notification_service
+        target_emp_id = existing.get("employeeId")
+        if target_emp_id:
+            await notification_service.create_notification(
+                type="ATTENDANCE_ADJUSTMENT",
+                title=f"Shift Status Updated: {new_status}",
+                message=f"Your shift on {existing.get('date', 'today')} was marked as '{new_status}' by Operations Supervisor/Admin.",
+                employee_id=target_emp_id,
+                employee_name=existing.get("employeeName"),
+                site_name=existing.get("siteName"),
+                severity="warning" if new_status in ["Late", "Half Day", "Absent"] else "info",
+                target_roles=["technician", "employee"],
+                target_employee_id=target_emp_id
+            )
+    except Exception as e:
+        pass
+
     return {"success": True, "message": f"Shift status updated to {new_status}", "status": new_status}
 

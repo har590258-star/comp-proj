@@ -11,6 +11,7 @@ import {
   Building2,
   Calendar,
   Filter,
+  Navigation,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -30,10 +31,12 @@ import Card from '../components/ui/Card';
 import StatCard from '../components/ui/StatCard';
 import StatusBadge from '../components/ui/StatusBadge';
 import Button from '../components/ui/Button';
+import EmployeeShiftRouteModal from '../components/ui/EmployeeShiftRouteModal';
 import { EmptyState, LoadingSpinner } from '../components/ui/FeedbackStates';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
+  const [selectedUserRoute, setSelectedUserRoute] = useState(null);
 
   const [stats, setStats] = useState({
     totalEmployees: 0,
@@ -268,16 +271,46 @@ const AdminDashboard = () => {
                     <th className="py-3 px-5">Working Duration</th>
                     <th className="py-3 px-5">Distance Traveled</th>
                     <th className="py-3 px-5">Shift Status</th>
+                    <th className="py-3 px-5 text-right">Route Map</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {stats.recentAttendance.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50/70 transition-colors">
+                    <tr
+                      key={row.id}
+                      onClick={() => setSelectedUserRoute(row)}
+                      className="hover:bg-blue-50/60 transition-colors cursor-pointer group"
+                      title="Click to view employee data & shift route map"
+                    >
                       <td className="py-3.5 px-5">
-                        <p className="font-bold text-slate-900">{row.name}</p>
-                        <p className="text-[11px] font-mono text-slate-500">{row.employeeId}</p>
+                        <div className="flex items-center gap-2">
+                          <div>
+                            <p className="font-bold text-slate-900 group-hover:text-brand-600 transition-colors flex items-center gap-1.5">
+                              <span>{row.name}</span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-700 opacity-0 group-hover:opacity-100 transition-opacity">
+                                View Route
+                              </span>
+                            </p>
+                            <p className="text-[11px] font-mono text-slate-500">{row.employeeId}</p>
+                          </div>
+                        </div>
                       </td>
-                      <td className="py-3.5 px-5 text-slate-700 font-medium">{row.site}</td>
+                      <td className="py-3.5 px-5 text-slate-700 font-medium whitespace-nowrap">
+                        {row.checkOutSite && row.checkOutSite !== row.site ? (
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-1.5 font-bold text-slate-900 text-xs">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                              <span>In: {row.site}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 font-semibold text-blue-700 text-xs">
+                              <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                              <span>Out: {row.checkOutSite}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          row.site
+                        )}
+                      </td>
                       <td className="py-3.5 px-5 font-mono text-xs font-semibold text-slate-900">
                         {row.checkIn || '--'}
                       </td>
@@ -289,11 +322,26 @@ const AdminDashboard = () => {
                       <td className="py-3.5 px-5 text-xs text-brand-600 font-bold">
                         {row.workingHours || '--'}
                       </td>
-                      <td className="py-3.5 px-5 font-mono text-xs font-semibold text-slate-800">
-                        {row.distanceTraveledFormatted || '--'}
+                      <td className="py-3.5 px-5 text-xs whitespace-nowrap">
+                        <span className="font-mono font-bold text-slate-800">
+                          {row.distanceTraveledFormatted || '--'}
+                        </span>
                       </td>
                       <td className="py-3.5 px-5">
                         <StatusBadge status={row.status} size="sm" />
+                      </td>
+                      <td className="py-3.5 px-5 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedUserRoute(row);
+                          }}
+                          className="px-2.5 py-1 rounded-xl bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white font-bold text-[11px] inline-flex items-center gap-1.5 border border-blue-200 transition-all shadow-2xs group-hover:bg-blue-600 group-hover:text-white"
+                        >
+                          <Navigation className="w-3 h-3" />
+                          <span>View Map</span>
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -304,10 +352,23 @@ const AdminDashboard = () => {
             {/* Mobile Cards View matching Screen 9 */}
             <div className="sm:hidden divide-y divide-slate-100">
               {stats.recentAttendance.map((row) => (
-                <div key={row.id} className="p-4 flex items-center justify-between hover:bg-slate-50">
+                <div
+                  key={row.id}
+                  onClick={() => setSelectedUserRoute(row)}
+                  className="p-4 flex items-center justify-between hover:bg-blue-50/50 cursor-pointer transition-colors"
+                >
                   <div>
-                    <p className="text-xs font-bold text-slate-900">{row.name} ({row.employeeId})</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">{row.site}</p>
+                    <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <span>{row.name} ({row.employeeId})</span>
+                      <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded-md border border-blue-200">
+                        Map
+                      </span>
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      {row.checkOutSite && row.checkOutSite !== row.site
+                        ? `In: ${row.site} ➔ Out: ${row.checkOutSite}`
+                        : row.site}
+                    </p>
                     <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-1 font-mono">
                       <span>In: {row.checkIn || '--'}</span>
                       <span>•</span>
@@ -326,6 +387,13 @@ const AdminDashboard = () => {
           </>
         )}
       </Card>
+
+      {/* Interactive Employee Shift & Route Map Modal */}
+      <EmployeeShiftRouteModal
+        isOpen={Boolean(selectedUserRoute)}
+        onClose={() => setSelectedUserRoute(null)}
+        data={selectedUserRoute}
+      />
     </div>
   );
 };

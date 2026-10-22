@@ -1,18 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, Calendar, Filter, Clock, MapPin } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Calendar, Filter, Clock, MapPin, Navigation, Edit } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import Card from '../components/ui/Card';
 import StatusBadge from '../components/ui/StatusBadge';
 import Button from '../components/ui/Button';
 import HolidayModal from '../components/ui/HolidayModal';
+import ShiftRouteModal from '../components/ui/ShiftRouteModal';
+import ManualAttendanceModal from '../components/ui/ManualAttendanceModal';
 import { LoadingSpinner, EmptyState } from '../components/ui/FeedbackStates';
 
 const AttendanceHistory = () => {
   const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
   const [showHolidayModal, setShowHolidayModal] = useState(false);
+  const [selectedRouteRecord, setSelectedRouteRecord] = useState(null);
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [adjustingRecord, setAdjustingRecord] = useState(null);
 
   const now = new Date();
   const [activeTab, setActiveTab] = useState('monthly'); // 'daily' | 'weekly' | 'monthly'
@@ -53,7 +58,7 @@ const AttendanceHistory = () => {
     try {
       setLoading(true);
       const targetMonthStr = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}`;
-      const empIdParam = isAdmin ? selectedEmp : (user?.employeeId || 'EMP001');
+      const empIdParam = isAdmin ? selectedEmp : (user?.employeeId || 'b4S/Adani/01');
       const res = await api.get(
         `/attendance/history?employeeId=${empIdParam}&filter_type=${activeTab}&month=${targetMonthStr}`
       );
@@ -72,11 +77,16 @@ const AttendanceHistory = () => {
             employeeId: r.employeeId,
             employeeName: r.employeeName || 'Field Technician',
             date: dateStr,
+            dateRaw: r.date,
             status: r.status,
             site: r.siteName || user?.assignedSiteName || 'Assigned Site',
+            checkOutSite: r.checkOutSiteName,
+            checkInLocation: r.checkInLocation,
+            checkOutLocation: r.checkOutLocation,
             checkIn: r.checkInTime || '--',
             checkOut: r.checkOutTime || '--',
             hours: r.workingHours || '--',
+            remarks: r.remarks,
             distanceTraveled: r.distanceTraveledFormatted || (r.distanceTraveledMeters !== undefined && r.distanceTraveledMeters !== null ? `${r.distanceTraveledMeters} m` : '--'),
           };
         });
@@ -163,6 +173,22 @@ const AttendanceHistory = () => {
               </select>
             </div>
           )}
+
+          {/* Admin Manual Attendance Adjustment Action */}
+          {isAdmin && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                setAdjustingRecord(null);
+                setShowManualModal(true);
+              }}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>+ Mark Late / Half Day</span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -235,6 +261,7 @@ const AttendanceHistory = () => {
                     <th className="py-3 px-5">Duration</th>
                     <th className="py-3 px-5">Distance Traveled</th>
                     <th className="py-3 px-5">Status</th>
+                    {isAdmin && <th className="py-3 px-5 text-right">Admin Action</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -250,7 +277,20 @@ const AttendanceHistory = () => {
                         </td>
                       )}
                       <td className="py-3.5 px-5 text-slate-700 font-medium whitespace-nowrap">
-                        {item.site}
+                        {item.checkOutSite && item.checkOutSite !== item.site ? (
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-1.5 font-bold text-slate-900 text-xs">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                              <span>In: {item.site}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 font-semibold text-blue-700 text-xs">
+                              <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                              <span>Out: {item.checkOutSite}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          item.site
+                        )}
                       </td>
                       <td className="py-3.5 px-5 font-mono text-xs font-semibold text-slate-900 whitespace-nowrap">
                         {item.checkIn}
@@ -263,12 +303,45 @@ const AttendanceHistory = () => {
                       <td className="py-3.5 px-5 text-xs text-brand-600 font-bold whitespace-nowrap">
                         {item.hours}
                       </td>
-                      <td className="py-3.5 px-5 text-xs font-mono font-semibold text-slate-800 whitespace-nowrap">
-                        {item.distanceTraveled}
+                      <td className="py-3.5 px-5 text-xs whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-slate-800">{item.distanceTraveled}</span>
+                          {(item.checkInLocation || item.checkOutLocation) && (
+                            <button
+                              onClick={() => setSelectedRouteRecord(item)}
+                              className="px-2 py-0.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[10px] flex items-center gap-1 border border-blue-200 transition-colors shadow-2xs hover:scale-105"
+                              title="Show distance traveled on map"
+                            >
+                              <Navigation className="w-2.5 h-2.5 text-blue-600" />
+                              <span>Map</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3.5 px-5">
                         <StatusBadge status={item.status} size="sm" />
+                        {item.remarks && (
+                          <p className="text-[10px] text-slate-500 font-medium italic mt-1 max-w-[200px] leading-tight" title={item.remarks}>
+                            {item.remarks}
+                          </p>
+                        )}
                       </td>
+                      {isAdmin && (
+                        <td className="py-3.5 px-5 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAdjustingRecord(item);
+                              setShowManualModal(true);
+                            }}
+                            className="px-2.5 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-[11px] border border-amber-200 transition-colors inline-flex items-center gap-1 shadow-2xs"
+                            title="Manually adjust status (Late, Half Day, Present)"
+                          >
+                            <Edit className="w-3 h-3 text-amber-700" />
+                            <span>Adjust</span>
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -277,6 +350,24 @@ const AttendanceHistory = () => {
           </>
         )}
       </Card>
+
+      {/* Manual Attendance Adjustment Modal for Admin */}
+      <ManualAttendanceModal
+        isOpen={showManualModal}
+        onClose={() => {
+          setShowManualModal(false);
+          setAdjustingRecord(null);
+        }}
+        initialData={adjustingRecord}
+        onSuccess={() => fetchHistory()}
+      />
+
+      {/* Interactive Shift Route Map Modal */}
+      <ShiftRouteModal
+        isOpen={Boolean(selectedRouteRecord)}
+        onClose={() => setSelectedRouteRecord(null)}
+        record={selectedRouteRecord}
+      />
 
       <HolidayModal
         isOpen={showHolidayModal}

@@ -16,11 +16,12 @@ import Employees from '../pages/Employees';
 import Sites from '../pages/Sites';
 import Reports from '../pages/Reports';
 import Settings from '../pages/Settings';
+import Salary from '../pages/Salary';
 import ErrorBoundary from '../components/ui/ErrorBoundary';
 
 // Protected Route wrapper with role authorization
-const ProtectedRoute = ({ children, requireAdmin = false }) => {
-  const { user, isAdmin } = useAuth();
+const ProtectedRoute = ({ children, requireAdmin = false, requireManage = false }) => {
+  const { user, isAdmin, canManage } = useAuth();
 
   if (!user) {
     return <Navigate to="/login" replace />;
@@ -30,11 +31,15 @@ const ProtectedRoute = ({ children, requireAdmin = false }) => {
     return <Navigate to="/dashboard" replace />;
   }
 
+  if (requireManage && !canManage) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return <ErrorBoundary>{children}</ErrorBoundary>;
 };
 
 const AppRoutes = () => {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, canManage } = useAuth();
 
   return (
     <Routes>
@@ -59,21 +64,32 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       >
-        {/* Index Redirect based on role */}
+        {/* Index Redirect based on role: Admin to /admin, Supervisor and Technician to /dashboard */}
         <Route
           index
           element={<Navigate to={isAdmin ? '/admin' : '/dashboard'} replace />}
         />
 
-        {/* Technician Core Routes */}
+        {/* Technician & Supervisor Core Employee Routes */}
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="check-in" element={<CheckIn />} />
         <Route path="check-out" element={<CheckOut />} />
         <Route path="attendance" element={<Attendance />} />
         <Route path="history" element={<AttendanceHistory />} />
-        <Route path="site" element={<AssignedSite />} />
+        <Route path="site" element={<Navigate to="/dashboard" replace />} />
+        <Route path="salary" element={<Salary />} />
 
-        {/* Admin Management Routes - strictly restricted to admin role */}
+        {/* Site Management - Authorized for both Admin and Supervisor */}
+        <Route
+          path="sites"
+          element={
+            <ProtectedRoute requireManage={true}>
+              <Sites />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Admin Exclusive Operations Routes */}
         <Route
           path="admin"
           element={
@@ -95,14 +111,6 @@ const AppRoutes = () => {
           element={
             <ProtectedRoute requireAdmin={true}>
               <Employees />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="sites"
-          element={
-            <ProtectedRoute requireAdmin={true}>
-              <Sites />
             </ProtectedRoute>
           }
         />

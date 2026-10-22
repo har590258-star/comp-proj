@@ -124,7 +124,7 @@ Once deployed, your application will have a URL like `https://your-project.verce
 3. **Verify Frontend Application:**
    Visit `https://your-project.vercel.app` and log in with the pre-seeded credentials:
    - **Admin Portal:** `admin@adani.com` / `Admin@123` (or ID: `ADMIN01`)
-   - **Technician Portal:** `rahul.sharma@adani.com` / `Tech@123` (or ID: `EMP001`)
+   - **Technician Portal:** `rahul.sharma@adani.com` / `Tech@123` (or ID: `b4S/Adani/01`)
 
 ---
 

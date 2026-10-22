@@ -57,6 +57,30 @@ class LocationService:
                 "isOnline": True
             }
 
+        elif emp and emp.get("latitude") is not None and emp.get("longitude") is not None:
+            user_lat = float(emp["latitude"])
+            user_lon = float(emp["longitude"])
+            dist_meters = 0.0
+            dist_formatted = "0 m"
+            if site_lat is not None and site_lon is not None:
+                dist_meters = calculate_haversine_distance(user_lat, user_lon, site_lat, site_lon)
+                dist_formatted = format_distance(dist_meters)
+
+            return {
+                "employeeId": employee_id,
+                "employeeName": emp_name,
+                "latitude": user_lat,
+                "longitude": user_lon,
+                "accuracy": 8,
+                "speed": 0,
+                "batteryLevel": 100,
+                "updatedAt": "Specified Location",
+                "siteName": site_name,
+                "distanceToSiteMeters": round(dist_meters, 1),
+                "distanceFormatted": dist_formatted,
+                "isOnline": True
+            }
+
         return {
             "employeeId": employee_id,
             "employeeName": emp_name,
@@ -89,7 +113,7 @@ class LocationService:
         locations_col = get_collection("locations")
         attendance_col = get_collection("attendance")
 
-        employees = await employees_col.find({"status": "Active"}).to_list(100)
+        employees = await employees_col.find({"status": {"$ne": "Inactive"}}).to_list(100)
         today_str = get_ist_today_str()
         team_data = []
 
@@ -132,6 +156,11 @@ class LocationService:
                 lon = loc.get("longitude")
                 accuracy = loc.get("accuracy", 8)
                 time_str = att.get("checkInTime", "--")
+            elif emp.get("latitude") is not None and emp.get("longitude") is not None:
+                lat = float(emp["latitude"])
+                lon = float(emp["longitude"])
+                accuracy = 8
+                time_str = "Specified Coords"
 
             status = att.get("status", "Not Checked In") if att else "Not Checked In"
 

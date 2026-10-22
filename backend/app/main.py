@@ -6,6 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from bson import ObjectId
+from fastapi.encoders import ENCODERS_BY_TYPE
+
+# Global BSON ObjectId serialization support
+ENCODERS_BY_TYPE[ObjectId] = str
+
 from app.core.config import settings
 from app.db.mongodb import db_manager
 from app.db.seed_data import seed_initial_data
@@ -18,22 +24,49 @@ from app.routes.locations import router as locations_router
 from app.routes.dashboard import router as dashboard_router
 from app.routes.reports import router as reports_router
 from app.routes.settings import router as settings_router
+from app.routes.notifications import router as notifications_router
+from app.routes.salary import router as salary_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("uvicorn")
+
+import asyncio
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Connect to DB and seed with fault-tolerance
     logger.info("Starting up GPS Based Attendance & Tracking Application backend...")
+    auto_checkout_task = None
     try:
         await db_manager.connect_to_database()
         await seed_initial_data()
         logger.info("Database initialized and initial seed completed.")
+
+        from app.services.attendance_service import attendance_service
+        # Initial sweep on startup
+        try:
+            await attendance_service.auto_checkout_past_shifts()
+        except Exception as e:
+            logger.warning(f"Initial auto-checkout notice: {e}")
+
+        # Periodic background runner (every 60s)
+        async def periodic_auto_checkout():
+            while True:
+                try:
+                    await asyncio.sleep(60)
+                    await attendance_service.auto_checkout_past_shifts()
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.warning(f"Periodic auto-checkout error: {e}")
+
+        auto_checkout_task = asyncio.create_task(periodic_auto_checkout())
     except Exception as e:
         logger.warning(f"Lifespan initialization notice: {e}")
     yield
     # Shutdown
+    if auto_checkout_task:
+        auto_checkout_task.cancel()
     try:
         await db_manager.close_database_connection()
     except Exception:
@@ -101,6 +134,8 @@ app.include_router(locations_router, prefix=api_v1)
 app.include_router(dashboard_router, prefix=api_v1)
 app.include_router(reports_router, prefix=api_v1)
 app.include_router(settings_router, prefix=api_v1)
+app.include_router(notifications_router, prefix=api_v1)
+app.include_router(salary_router, prefix=api_v1)
 
 @app.get("/")
 @app.get("/api")

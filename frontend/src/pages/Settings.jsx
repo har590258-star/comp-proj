@@ -38,7 +38,9 @@ const Settings = () => {
     workingHoursEnd: '06:00 PM',
     lateThresholdMinutes: 15,
     requireGps: true,
+    enforceShiftTimingRules: true,
     allowMultipleCheckIns: false,
+    allowNightAndOvertimeShifts: false,
     autoCheckOutEnabled: false,
     autoCheckOutTime: '19:00',
   });
@@ -229,22 +231,71 @@ const Settings = () => {
             helperText="Minutes past shift start before check-in is flagged late"
           />
 
-          <div className="space-y-2 pt-2 border-t border-slate-100">
-            <label className="flex items-center gap-3 cursor-pointer">
+          <div className="space-y-3 pt-2 border-t border-slate-100">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={attendanceSettings.allowNightAndOvertimeShifts ?? true}
+                onChange={(e) =>
+                  setAttendanceSettings({
+                    ...attendanceSettings,
+                    allowNightAndOvertimeShifts: e.target.checked,
+                  })
+                }
+                className="w-4 h-4 mt-0.5 text-brand-600 rounded border-slate-300 focus:ring-brand-500"
+              />
+              <div>
+                <span className="text-xs sm:text-sm font-medium text-slate-800">
+                  Allow 24/7 Shift Operations (After 6:00 PM & Before 9:00 AM)
+                </span>
+                <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                  Employees can check in and check out at any hour including night shifts, early morning duties, and overnight cross-midnight shifts.
+                </p>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={attendanceSettings.allowMultipleCheckIns ?? true}
+                onChange={(e) =>
+                  setAttendanceSettings({
+                    ...attendanceSettings,
+                    allowMultipleCheckIns: e.target.checked,
+                  })
+                }
+                className="w-4 h-4 mt-0.5 text-brand-600 rounded border-slate-300 focus:ring-brand-500"
+              />
+              <div>
+                <span className="text-xs sm:text-sm font-medium text-slate-800">
+                  Allow Multiple Shifts / Overtime Check-Ins Per Day
+                </span>
+                <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                  Permits separate check-in after completing a daytime shift for evening or emergency overtime.
+                </p>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={attendanceSettings.requireGps}
                 onChange={(e) =>
                   setAttendanceSettings({ ...attendanceSettings, requireGps: e.target.checked })
                 }
-                className="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500"
+                className="w-4 h-4 mt-0.5 text-brand-600 rounded border-slate-300 focus:ring-brand-500"
               />
-              <span className="text-xs sm:text-sm font-medium text-slate-700">
-                Enforce Strict GPS Geofence Verification
-              </span>
+              <div>
+                <span className="text-xs sm:text-sm font-medium text-slate-800">
+                  Enforce Strict GPS Geofence Verification
+                </span>
+                <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                  Ensures employee device is within allowed meters of the assigned site.
+                </p>
+              </div>
             </label>
 
-            <label className="flex items-center gap-3 cursor-pointer">
+            <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={attendanceSettings.autoCheckOutEnabled}
@@ -254,11 +305,16 @@ const Settings = () => {
                     autoCheckOutEnabled: e.target.checked,
                   })
                 }
-                className="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500"
+                className="w-4 h-4 mt-0.5 text-brand-600 rounded border-slate-300 focus:ring-brand-500"
               />
-              <span className="text-xs sm:text-sm font-medium text-slate-700">
-                Auto Check-Out at 07:00 PM for Overtime Safeguard
-              </span>
+              <div>
+                <span className="text-xs sm:text-sm font-medium text-slate-800">
+                  Auto Check-Out at 07:00 PM (Disable for Night Shift Workers)
+                </span>
+                <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                  Automatically seals daytime records at evening cutoff. Keep unchecked if technicians work late or overnight.
+                </p>
+              </div>
             </label>
           </div>
 

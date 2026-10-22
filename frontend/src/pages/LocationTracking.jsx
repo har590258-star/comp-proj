@@ -29,8 +29,8 @@ import ErrorBoundary from '../components/ui/ErrorBoundary';
 
 const LocationTracking = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.employeeId === 'ADMIN01';
+  const { user, canManage } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'supervisor' || user?.employeeId === 'ADMIN01' || user?.employeeId === 'SUPER01' || canManage;
 
   if (!isAdmin) {
     return <Navigate to="/dashboard" replace />;
@@ -152,7 +152,7 @@ const LocationTracking = () => {
   const fetchUserCurrentLocation = async () => {
     try {
       setLoading(true);
-      const res = await api.get(`/locations/current/${user?.employeeId || 'EMP001'}`);
+      const res = await api.get(`/locations/current/${user?.employeeId || 'b4S/Adani/01'}`);
       if (res.data && res.data.latitude) {
         setLocationData((prev) => ({
           ...prev,

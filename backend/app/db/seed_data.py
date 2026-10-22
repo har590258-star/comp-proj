@@ -89,11 +89,13 @@ async def seed_initial_data():
         employees_data = [
             {
                 "id": "emp_001",
-                "employeeId": "EMP001",
+                "employeeId": "b4S/Adani/01",
                 "name": "Rohit Sharma",
                 "email": "rohit.sharma@adani.com",
                 "phone": "9876543210",
-                "designation": "Field Technician",
+                "designation": "Junior Engineer",
+                "circle": "Gujarat Circle",
+                "division": "Surat Division",
                 "role": "technician",
                 "assignedSiteId": "site_2949e4fc",
                 "assignedSiteName": "Surat ST-1",
@@ -101,11 +103,13 @@ async def seed_initial_data():
             },
             {
                 "id": "emp_002",
-                "employeeId": "EMP002",
+                "employeeId": "b4S/Adani/02",
                 "name": "Amit Kumar",
                 "email": "amit.kumar@adani.com",
                 "phone": "9876543211",
-                "designation": "Field Technician",
+                "designation": "Junior Engineer",
+                "circle": "Prc",
+                "division": "Pune Division",
                 "role": "technician",
                 "assignedSiteId": "site_pune_1",
                 "assignedSiteName": "Pune - Phase 1",
@@ -113,11 +117,13 @@ async def seed_initial_data():
             },
             {
                 "id": "emp_003",
-                "employeeId": "EMP003",
+                "employeeId": "b4S/Adani/03",
                 "name": "Sandeep Yadav",
                 "email": "sandeep.yadav@adani.com",
                 "phone": "9876543212",
-                "designation": "Field Technician",
+                "designation": "Junior Engineer",
+                "circle": "Rastapeth",
+                "division": "Bundgarden",
                 "role": "technician",
                 "assignedSiteId": "site_pune_2",
                 "assignedSiteName": "Pune - Phase 2",
@@ -125,11 +131,13 @@ async def seed_initial_data():
             },
             {
                 "id": "emp_004",
-                "employeeId": "EMP004",
+                "employeeId": "b4S/Adani/04",
                 "name": "Vikash Singh",
                 "email": "vikash.singh@adani.com",
                 "phone": "9876543213",
-                "designation": "Field Technician",
+                "designation": "Junior Engineer",
+                "circle": "Rastapeth",
+                "division": "Padmavati Division",
                 "role": "technician",
                 "assignedSiteId": "site_pune_2",
                 "assignedSiteName": "Pune - Phase 2",
@@ -137,14 +145,32 @@ async def seed_initial_data():
             },
             {
                 "id": "emp_005",
-                "employeeId": "EMP005",
+                "employeeId": "b4S/Adani/05",
                 "name": "Neha Patil",
                 "email": "neha.patil@adani.com",
                 "phone": "9876543214",
-                "designation": "Supervisor",
+                "designation": "Division Head",
+                "circle": "Prc",
+                "division": "Office",
                 "role": "technician",
                 "assignedSiteId": "site_pune_1",
                 "assignedSiteName": "Pune - Phase 1",
+                "status": "Present"
+            },
+            {
+                "id": "emp_supervisor",
+                "employeeId": "SUPER01",
+                "name": "Suresh Patil",
+                "email": "suresh.patil@adani.com",
+                "phone": "9822012345",
+                "designation": "Area Operations Supervisor",
+                "circle": "Maharashtra Circle",
+                "division": "Pune Division",
+                "role": "supervisor",
+                "assignedSiteId": "site_pune_1",
+                "assignedSiteName": "Pune - Phase 1",
+                "assignedSiteIds": ["site_pune_1", "site_pune_2"],
+                "assignedSiteNames": ["Pune - Phase 1", "Pune - Phase 2"],
                 "status": "Present"
             },
             {
@@ -154,6 +180,8 @@ async def seed_initial_data():
                 "email": "admin@adani.com",
                 "phone": "9800000000",
                 "designation": "Project Operations Lead",
+                "circle": "Prc",
+                "division": "Office",
                 "role": "admin",
                 "assignedSiteId": "site_pune_1",
                 "assignedSiteName": "Pune - Phase 1",
@@ -164,7 +192,7 @@ async def seed_initial_data():
         for emp in employees_data:
             await employees_col.insert_one(emp)
             user_doc = {
-                "id": f"usr_{emp['employeeId'].lower()}",
+                "id": f"usr_{emp['employeeId'].replace('/', '_').lower()}",
                 "username": emp["employeeId"],
                 "password": hash_password("adani123" if emp["role"] != "admin" else "admin123"),
                 "name": emp["name"],
@@ -178,8 +206,8 @@ async def seed_initial_data():
             }
             await users_col.insert_one(user_doc)
     else:
-        # Preserve EMP001 name without overwriting multi-site assignments
-        emp_existing = await employees_col.find_one({"employeeId": "EMP001"})
+        # Preserve b4S/Adani/01 name without overwriting multi-site assignments
+        emp_existing = await employees_col.find_one({"employeeId": "b4S/Adani/01"})
         if emp_existing:
             assigned_ids = emp_existing.get("assignedSiteIds") or []
             assigned_names = emp_existing.get("assignedSiteNames") or []
@@ -188,8 +216,46 @@ async def seed_initial_data():
                 update_data["assignedSiteId"] = assigned_ids[0]
                 if assigned_names:
                     update_data["assignedSiteName"] = assigned_names[0]
-            await employees_col.update_one({"employeeId": "EMP001"}, {"$set": update_data})
-            await users_col.update_one({"employeeId": "EMP001"}, {"$set": update_data})
+            await employees_col.update_one({"employeeId": "b4S/Adani/01"}, {"$set": update_data})
+            await users_col.update_one({"employeeId": "b4S/Adani/01"}, {"$set": update_data})
+
+        # Ensure SUPER01 supervisor exists
+        super_existing = await employees_col.find_one({"employeeId": "SUPER01"})
+        if not super_existing:
+            super_doc = {
+                "id": "emp_supervisor",
+                "employeeId": "SUPER01",
+                "name": "Suresh Patil",
+                "email": "suresh.patil@adani.com",
+                "phone": "9822012345",
+                "designation": "Area Operations Supervisor",
+                "circle": "Maharashtra Circle",
+                "division": "Pune Division",
+                "role": "supervisor",
+                "assignedSiteId": "site_pune_1",
+                "assignedSiteName": "Pune - Phase 1",
+                "assignedSiteIds": ["site_pune_1", "site_pune_2"],
+                "assignedSiteNames": ["Pune - Phase 1", "Pune - Phase 2"],
+                "status": "Present"
+            }
+            await employees_col.insert_one(super_doc)
+            user_super = {
+                "id": "usr_super01",
+                "username": "SUPER01",
+                "password": hash_password("supervisor123"),
+                "name": "Suresh Patil",
+                "email": "suresh.patil@adani.com",
+                "phone": "9822012345",
+                "designation": "Area Operations Supervisor",
+                "role": "supervisor",
+                "employeeId": "SUPER01",
+                "assignedSiteId": "site_pune_1",
+                "assignedSiteName": "Pune - Phase 1",
+                "assignedSiteIds": ["site_pune_1", "site_pune_2"],
+                "assignedSiteNames": ["Pune - Phase 1", "Pune - Phase 2"],
+                "status": "Present"
+            }
+            await users_col.insert_one(user_super)
 
     # 3. Settings
     if await settings_col.count_documents({}) == 0:
@@ -199,6 +265,11 @@ async def seed_initial_data():
                 "attendanceRadiusMeters": 500,
                 "shiftStartTime": "09:00",
                 "shiftEndTime": "18:00",
+                "workingHoursStart": "09:00 AM",
+                "workingHoursEnd": "06:00 PM",
+                "enforceShiftTimingRules": True,
+                "allowNightAndOvertimeShifts": False,
+                "allowMultipleCheckIns": False,
                 "gracePeriodMinutes": 15,
                 "enableGeofenceEnforcement": True,
                 "requireDeviceGPS": True,

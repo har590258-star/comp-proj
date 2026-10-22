@@ -126,23 +126,30 @@ const CheckIn = () => {
     fetchTodayStatus();
   }, [user?.employeeId, user?.assignedSiteId, querySiteId]);
 
-  // Live ticking timer for hours worked while shift is active
+  // Live ticking timer for clock and shift timing evaluation
   useEffect(() => {
-    let interval = null;
-    if (todayStatus?.isCheckedIn) {
-      interval = setInterval(() => {
-        setNow(new Date());
-      }, 1000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [todayStatus?.isCheckedIn]);
+    const interval = setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const isSupervisor = user?.role === 'supervisor' || user?.role === 'admin';
+
+  // Shift Timing Evaluation:
+  // Before 09:00 AM -> Present (On-time)
+  // 09:00 AM - 10:30 AM -> Late Checked-In
+  // After 10:30 AM -> Half-Day
+  // After 06:00 PM -> Check-in Strictly Closed
+  const currentTotalMins = now.getHours() * 60 + now.getMinutes();
+  const isPast6PM = now.getHours() >= 18 || todayStatus?.isCheckInAllowedNow === false;
+  const isLateCheckIn = !isPast6PM && currentTotalMins >= 540 && currentTotalMins <= 630;
+  const isHalfDayCheckIn = !isPast6PM && currentTotalMins > 630;
 
   const fetchTodayStatus = async () => {
     try {
       setLoadingStatus(true);
-      const res = await api.get(`/attendance/today?employeeId=${user?.employeeId || 'EMP001'}`);
+      const res = await api.get(`/attendance/today?employeeId=${user?.employeeId || 'b4S/Adani/01'}`);
       if (res.data) {
         setTodayStatus(res.data);
       }
@@ -155,12 +162,24 @@ const CheckIn = () => {
 
   const fetchAssignedSite = async () => {
     try {
-      const empId = user?.employeeId || 'EMP001';
+      const empId = user?.employeeId || 'b4S/Adani/01';
       // Query all authorized sites for this employee from backend
       const res = await api.get('/sites', {
         params: { employee_id: empId }
       });
-      const userSites = res.data || [];
+      let userSites = res.data || [];
+      const allowedIds = user?.assignedSiteIds || (user?.assignedSiteId ? [user.assignedSiteId] : []);
+      const allowedNames = user?.assignedSiteNames || (user?.assignedSiteName ? [user.assignedSiteName] : []);
+      if (allowedIds.length > 0 || allowedNames.length > 0) {
+        const filtered = userSites.filter(s => {
+          const sid = String(s.id || s._id);
+          const sname = s.name;
+          return allowedIds.includes(sid) || (sname && allowedNames.includes(sname));
+        });
+        if (filtered.length > 0) {
+          userSites = filtered;
+        }
+      }
       if (userSites.length > 0) {
         setAssignedSites(userSites);
 
@@ -285,29 +304,39 @@ const CheckIn = () => {
       return;
     }
 
-    if (!isWithinGeofence) {
-      showToast(
-        `Check-in denied: You are ${formatDistance(distanceToSiteMeters)} away from ${siteLocation.name}. Check-in is only permitted within ${allowedRadius}m of the assigned substation.`,
-        'error'
-      );
+    if (isPast6PM) {
+      showToast('Check-in rejected: Shift check-in is strictly closed after 06:00 PM. Shifts conclude at 06:00 PM.', 'error');
       return;
     }
 
-    if (!photoPreview || !photoData) {
-      showToast('Shift verification photo is required. Please capture or upload a photo before checking in.', 'error');
-      return;
+    if (!isSupervisor) {
+      if (!isWithinGeofence) {
+        showToast(
+          `Check-in denied: You are ${formatDistance(distanceToSiteMeters)} away from ${siteLocation.name}. Check-in is only permitted within ${allowedRadius}m of the assigned substation.`,
+          'error'
+        );
+        return;
+      }
+
+      if (!photoPreview || !photoData) {
+        showToast('Shift verification photo is required. Please capture or upload a photo before checking in.', 'error');
+        return;
+      }
     }
 
     setSubmitting(true);
     try {
+      const finalLat = activeLat ? Number(activeLat) : Number(siteLocation.latitude || 18.5204);
+      const finalLng = activeLng ? Number(activeLng) : Number(siteLocation.longitude || 73.8567);
+
       const payload = {
-        employeeId: user?.employeeId || 'EMP001',
+        employeeId: user?.employeeId || 'b4S/Adani/01',
         siteId: activeSite.id || 'site_pune_1',
-        latitude: Number(activeLat),
-        longitude: Number(activeLng),
+        latitude: finalLat,
+        longitude: finalLng,
         accuracy: coordinates.accuracy || 10,
-        bypassRadiusCheck: false,
-        photo: photoData,
+        bypassRadiusCheck: Boolean(isSupervisor),
+        photo: photoData || null,
       };
 
       const res = await api.post('/attendance/check-in', payload);
@@ -316,7 +345,14 @@ const CheckIn = () => {
       setPhotoPreview(null);
       setPhotoFileName('');
       await fetchTodayStatus();
-      showToast(`Checked in successfully with photo verification at ${activeSite.name}!`, 'success');
+
+      const recStatus = res.data?.record?.status || (isHalfDayCheckIn ? 'Half Day' : isLateCheckIn ? 'Late' : 'Present');
+      showToast(
+        isSupervisor
+          ? `Supervisor checked in successfully (${recStatus}) at ${activeSite.name}!`
+          : `Checked in successfully (${recStatus}) with verification at ${activeSite.name}!`,
+        'success'
+      );
     } catch (err) {
       console.error('Check-in error:', err);
       const detail = err.response?.data?.detail;
@@ -834,21 +870,82 @@ const CheckIn = () => {
                     )}
                   </div>
 
-                  {/* Check In Button - Enabled strictly when within allowed geofence AND photo is attached */}
+                  {/* Supervisor Mode Indicator */}
+                  {isSupervisor && (
+                    <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-between text-xs text-blue-900 mb-2">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-blue-600 flex-shrink-0" />
+                        <div>
+                          <p className="font-extrabold text-blue-950">Supervisor Normal Check-In</p>
+                          <p className="text-[11px] text-blue-700">GPS geofence & verification photo requirements are bypassed.</p>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-blue-600 text-white shadow-2xs">
+                        Supervisor
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Half-Day Notice if checking in after 10:30 AM */}
+                  {isHalfDayCheckIn && (
+                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-800 flex items-start gap-3">
+                      <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div className="text-xs">
+                        <p className="font-bold text-amber-900 text-sm">Half-Day Shift Policy Notice</p>
+                        <p className="mt-0.5 font-medium text-amber-700">
+                          Checking in after 10:30 AM will be recorded as <strong>Half-Day</strong> attendance.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Late Arrival Notice if checking in between 09:00 AM and 10:30 AM */}
+                  {isLateCheckIn && (
+                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-800 flex items-start gap-3">
+                      <Clock className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div className="text-xs">
+                        <p className="font-bold text-amber-900 text-sm">Late Check-In Notice</p>
+                        <p className="mt-0.5 font-medium text-amber-700">
+                          Shift starts at 09:00 AM. Checking in now will be recorded as <strong>Late Checked-In</strong>.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Shift Ended Alert after 06:00 PM */}
+                  {isPast6PM && (
+                    <div className="p-4 rounded-2xl bg-rose-50 border border-rose-300 text-rose-800 flex items-start gap-3">
+                      <AlertTriangle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+                      <div className="text-xs">
+                        <p className="font-bold text-rose-900 text-sm">Shift Hours Concluded (Past 06:00 PM)</p>
+                        <p className="mt-0.5 font-medium text-rose-700">
+                          Shift check-in is strictly closed after 06:00 PM. All employee shifts conclude at 06:00 PM. Check-in will reopen tomorrow morning at 09:00 AM.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Check In Button */}
                   <Button
                     variant="primary"
                     size="lg"
                     fullWidth
                     loading={submitting}
-                    disabled={!hasGps || !isWithinGeofence || !photoPreview}
+                    disabled={isPast6PM || (isSupervisor ? false : (!hasGps || !isWithinGeofence || !photoPreview))}
                     onClick={handleCheckIn}
                     className={
-                      !isWithinGeofence || !photoPreview
+                      isPast6PM || (!isSupervisor && (!hasGps || !isWithinGeofence || !photoPreview))
                         ? 'bg-slate-200 border border-slate-300 text-slate-400 font-bold py-4 text-sm cursor-not-allowed select-none shadow-none'
+                        : isSupervisor
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-4 text-base shadow-md cursor-pointer'
                         : 'bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-4 text-base shadow-md cursor-pointer'
                     }
                   >
-                    {!hasGps
+                    {isPast6PM
+                      ? 'Locked: Check-In Closed After 06:00 PM'
+                      : isSupervisor
+                      ? (todayStatus?.checkOutTime ? 'Supervisor Check In Again' : 'Supervisor Check In Now')
+                      : !hasGps
                       ? 'Acquiring GPS Signal...'
                       : !isWithinGeofence
                       ? `Locked: Outside ${allowedRadius}m Geofence`
@@ -858,7 +955,11 @@ const CheckIn = () => {
                   </Button>
 
                   <p className="text-xs text-slate-500 font-medium mt-4 leading-relaxed">
-                    {!isWithinGeofence
+                    {isPast6PM
+                      ? 'Daily work hours end at 06:00 PM. New shift check-ins are closed until tomorrow morning.'
+                      : isSupervisor
+                      ? 'Supervisor normal check-in active. GPS and photo verification are optional.'
+                      : !isWithinGeofence
                       ? `Attendance check-in is blocked because your current device GPS is not within ${allowedRadius}m of ${siteLocation.name}.`
                       : !photoPreview
                       ? 'Please capture or upload a photo above to enable the check-in button.'
@@ -868,15 +969,22 @@ const CheckIn = () => {
               )}
             </Card>
 
-            {/* Quick Shift Recap Widget */}
-            <Card className="p-4 sm:p-5 flex items-center justify-between text-sm border-slate-200">
+            {/* Shift Timings Policy Widget */}
+            <Card className="p-4 sm:p-5 flex items-center justify-between text-sm border-slate-200 bg-slate-50/80">
               <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 font-bold">
-                  <Clock className="w-5 h-5 text-brand-600" />
+                <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold flex-shrink-0">
+                  <Clock className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="font-bold text-slate-900">Shift Timings: 09:00 AM - 06:00 PM</p>
-                  <p className="text-xs text-slate-500 font-medium">Standard 8-hour field operational schedule</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-slate-900">Shift Timings & Rules</p>
+                    <span className="text-[10px] font-bold bg-brand-100 text-brand-800 border border-brand-300 px-2 py-0.5 rounded-full">
+                      Attendance Rules
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 font-medium mt-0.5">
+                    Before 09:00 AM: On-Time | 09:00 - 10:30 AM: Late Checked-In | After 10:30 AM: Half-Day | After 06:00 PM: Auto Checked-Out.
+                  </p>
                 </div>
               </div>
             </Card>

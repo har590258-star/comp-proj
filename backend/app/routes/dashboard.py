@@ -14,25 +14,38 @@ async def get_dashboard_stats():
     sites_col = get_collection("sites")
 
     # Real count of active employees
-    total_employees = await employees_col.count_documents({"status": "Active"})
+    total_employees = await employees_col.count_documents({"status": {"$ne": "Inactive"}})
 
     # Today's real records
     today_str = get_ist_today_str()
     today_records = await attendance_col.find({"date": today_str}).to_list(500)
+    if not today_records:
+        today_records = await attendance_col.find().sort([("date", -1), ("createdAt", -1)]).limit(10).to_list(10)
 
     present_cnt = sum(1 for r in today_records if r.get("status") == "Present")
     checked_out_cnt = sum(1 for r in today_records if r.get("status") == "Checked Out")
     absent_cnt = max(0, total_employees - present_cnt - checked_out_cnt)
 
-    # Real recent attendance items
-    recent_items = []
     # Sort today records by updatedAt or createdAt desc
     sorted_records = sorted(
         today_records,
         key=lambda x: x.get("updatedAt", x.get("createdAt", "")),
         reverse=True
     )
+
+    # Fetch employee metadata for all recent attendance records
+    emp_ids = list({r.get("employeeId") for r in sorted_records if r.get("employeeId")})
+    emp_map = {}
+    if emp_ids and employees_col is not None:
+        raw_emps = await employees_col.find({"employeeId": {"$in": emp_ids}}).to_list(len(emp_ids))
+        emp_map = {e.get("employeeId"): e for e in raw_emps}
+
+    # Real recent attendance items
+    recent_items = []
     for r in sorted_records[:10]:
+        emp_id = r.get("employeeId", "EMP")
+        emp = emp_map.get(emp_id, {})
+
         dist_fmt = r.get("distanceTraveledFormatted")
         if not dist_fmt and r.get("checkInLocation") and r.get("checkOutLocation"):
             cin = r["checkInLocation"]
@@ -44,18 +57,36 @@ async def get_dashboard_stats():
                     from app.utils.geo import calculate_haversine_distance, format_distance
                     dist_fmt = format_distance(calculate_haversine_distance(cin_lat, cin_lon, cout_lat, cout_lon))
 
+        cin_loc = r.get("checkInLocation")
+        cout_loc = r.get("checkOutLocation")
+        battery = emp.get("lastBatteryLevel")
+        if battery is None and isinstance(cout_loc, dict):
+            battery = cout_loc.get("batteryLevel")
+        if battery is None and isinstance(cin_loc, dict):
+            battery = cin_loc.get("batteryLevel")
+
         recent_items.append(
             RecentAttendanceItem(
                 id=str(r.get("_id", r.get("id", ""))),
-                employeeId=r.get("employeeId", "EMP"),
-                name=r.get("employeeName", "Technician"),
-                designation="Field Technician",
+                employeeId=emp_id,
+                name=r.get("employeeName") or emp.get("name") or "Technician",
+                designation=emp.get("designation") or "Field Technician",
                 site=r.get("siteName", "Assigned Site"),
+                checkOutSite=r.get("checkOutSiteName"),
                 status=r.get("status", "Present"),
                 checkIn=r.get("checkInTime", "--") or "--",
                 checkOut=r.get("checkOutTime", "--") or "--",
                 workingHours=r.get("workingHours", "Active"),
-                distanceTraveledFormatted=dist_fmt or "--"
+                distanceTraveledFormatted=dist_fmt or "--",
+                checkInLocation=cin_loc if isinstance(cin_loc, dict) else None,
+                checkOutLocation=cout_loc if isinstance(cout_loc, dict) else None,
+                date=r.get("date"),
+                phone=emp.get("phone"),
+                email=emp.get("email"),
+                division=emp.get("division"),
+                circle=emp.get("circle"),
+                batteryLevel=float(battery) if battery is not None else None,
+                lastSeen=emp.get("lastSeen")
             )
         )
 

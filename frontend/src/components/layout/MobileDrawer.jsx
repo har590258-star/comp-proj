@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { X, LayoutDashboard, CheckCircle, LogOut as LogOutIcon, Calendar, Compass, Building2, Users, FileBarChart2, Settings, ShieldCheck, Wrench, Download } from 'lucide-react';
+import { X, LayoutDashboard, CheckCircle, LogOut as LogOutIcon, Calendar, Compass, Building2, Users, FileBarChart2, Settings, ShieldCheck, Wrench, Download, Banknote } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import HolidayModal from '../ui/HolidayModal';
 
 const MobileDrawer = ({ isOpen, onClose }) => {
-  const { user, isAdmin, switchRole, logout } = useAuth();
+  const { user, isAdmin, isSupervisor, canManage, logout } = useAuth();
   const [showHolidayModal, setShowHolidayModal] = useState(false);
 
   if (!isOpen) return null;
@@ -16,21 +16,31 @@ const MobileDrawer = ({ isOpen, onClose }) => {
     { to: '/check-out', label: 'Check Out', icon: LogOutIcon },
     { to: '/attendance', label: "Today's Status", icon: Calendar },
     { to: '/history', label: 'Attendance History', icon: Calendar },
-    { to: '/site', label: 'Assigned Sites', icon: Building2 },
-    { to: '/settings', label: 'Settings', icon: Settings },
+    { to: '/salary', label: 'My Salary & Payslips', icon: Banknote },
+  ];
+
+  const supervisorLinks = [
+    { to: '/dashboard', label: 'Home / Dashboard', icon: LayoutDashboard },
+    { to: '/check-in', label: 'Check In', icon: CheckCircle },
+    { to: '/check-out', label: 'Check Out', icon: LogOutIcon },
+    { to: '/attendance', label: "Today's Status", icon: Calendar },
+    { to: '/history', label: 'Attendance History', icon: Calendar },
+    { to: '/sites', label: 'Site Management', icon: Building2 },
+    { to: '/salary', label: 'My Salary & Payslips', icon: Banknote },
   ];
 
   const adminLinks = [
-    { to: '/admin', label: 'Admin Dashboard', icon: LayoutDashboard },
+    { to: '/admin', label: 'Operations Dashboard', icon: LayoutDashboard },
     { to: '/employees', label: 'Employee Management', icon: Users },
     { to: '/sites', label: 'Site Management', icon: Building2 },
     { to: '/history', label: 'Attendance Records', icon: Calendar },
     { to: '/reports', label: 'Reports & Export', icon: FileBarChart2 },
     { to: '/tracking', label: 'Location Tracking', icon: Compass },
-    { to: '/settings', label: 'Admin Settings', icon: Settings },
+    { to: '/salary', label: 'Salary & Monthly Records', icon: Banknote },
+    ...(isAdmin ? [{ to: '/settings', label: 'Admin Settings', icon: Settings }] : []),
   ];
 
-  const links = isAdmin ? adminLinks : technicianLinks;
+  const links = isAdmin ? adminLinks : isSupervisor ? supervisorLinks : technicianLinks;
 
   return (
     <div className="fixed inset-0 z-50 lg:hidden">
@@ -64,16 +74,9 @@ const MobileDrawer = ({ isOpen, onClose }) => {
           <p className="text-xs font-semibold text-slate-800">{user?.name || 'Rahul Sharma'}</p>
           <p className="text-[11px] text-slate-500">{user?.designation || 'Field Technician'} • {user?.assignedSiteName || 'Pune - Phase 1'}</p>
           <div className="mt-2 flex items-center gap-2">
-            <button
-              onClick={() => {
-                switchRole(isAdmin ? 'technician' : 'admin');
-                onClose();
-              }}
-              className="text-xs font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1 bg-white px-2 py-1 rounded-md border border-slate-200 shadow-xs"
-            >
-              {isAdmin ? <Wrench className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
-              <span>Switch to {isAdmin ? 'Technician' : 'Admin'}</span>
-            </button>
+            <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${isAdmin ? 'bg-purple-100 text-purple-700' : isSupervisor ? 'bg-emerald-100 text-emerald-700' : 'bg-brand-50 text-brand-700'}`}>
+              {isAdmin ? 'Operations Admin' : isSupervisor ? 'Field Supervisor' : 'Field Technician'}
+            </span>
           </div>
         </div>
 

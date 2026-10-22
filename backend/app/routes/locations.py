@@ -11,11 +11,11 @@ router = APIRouter(prefix="/locations", tags=["Location Tracking"])
 async def get_team_locations():
     return await location_service.get_team_locations()
 
-@router.get("/current/{employee_id}", response_model=CurrentLocationOut)
+@router.get("/current/{employee_id:path}", response_model=CurrentLocationOut)
 async def get_current_location(employee_id: str):
     return await location_service.get_current_location(employee_id)
 
-@router.get("/history/{employee_id}")
+@router.get("/history/{employee_id:path}")
 async def get_location_history(employee_id: str, limit: int = Query(50)):
     return await location_service.get_location_history(employee_id, limit)
 

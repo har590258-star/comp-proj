@@ -14,6 +14,7 @@ import {
   Table,
   List,
   Sparkles,
+  Printer,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import api from '../services/api';
@@ -124,8 +125,9 @@ const Reports = () => {
       setLoading(true);
       const yVal = parseInt(fromDate.split('-')[0], 10) || 2026;
       const mVal = parseInt(fromDate.split('-')[1], 10) || 10;
+      const siteVal = typeof selectedSite === 'string' ? selectedSite : (selectedSite?.target?.value || 'all');
       const res = await api.get(
-        `/reports/attendance?fromDate=${fromDate}&toDate=${toDate}&siteId=${selectedSite}&month=${mVal}&year=${yVal}`
+        `/reports/attendance?fromDate=${fromDate}&toDate=${toDate}&siteId=${siteVal}&month=${mVal}&year=${yVal}`
       );
       if (res.data) {
         if (res.data.summary) setReportSummary(res.data.summary);
@@ -165,8 +167,9 @@ const Reports = () => {
       const mVal = parseInt(fromDate.split('-')[1], 10) || 10;
 
       // Attempt server-side openpyxl generation for exact template layout
+      const siteVal = typeof selectedSite === 'string' ? selectedSite : (selectedSite?.target?.value || 'all');
       const response = await api.get(
-        `/reports/export-excel?fromDate=${fromDate}&toDate=${toDate}&siteId=${selectedSite}&month=${mVal}&year=${yVal}`,
+        `/reports/export-excel?fromDate=${fromDate}&toDate=${toDate}&siteId=${siteVal}&month=${mVal}&year=${yVal}`,
         { responseType: 'blob' }
       );
 
@@ -176,7 +179,7 @@ const Reports = () => {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `b4S_Attendance_Muster_Roll_${yVal}_${String(mVal).padStart(2, '0')}.xlsx`);
+      link.setAttribute('download', `Adani_Attendance_Muster_Roll_${yVal}_${String(mVal).padStart(2, '0')}.xlsx`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -192,29 +195,30 @@ const Reports = () => {
     }
   };
 
-  // Client-side fallback generator that produces the exact template columns
+  // Client-side fallback generator that produces the exact template columns:
+  // SR. NO., Employee Code, Employee Name, Designation, CIRCLE, Division, 1..31, P, WOP, A, OD, WO, PL, PH, Total
   const generateClientSideMusterRoll = () => {
     try {
       const year = parseInt(fromDate.split('-')[0], 10) || 2026;
       const month = parseInt(fromDate.split('-')[1], 10) || 10;
       const daysInMonth = new Date(year, month, 0).getDate();
 
-      const emps = employeesList.length > 0 ? employeesList : [
-        { employeeId: 'EMP001', name: 'Rohit Sharma', assignedSiteName: 'Surat ST-1' },
-        { employeeId: 'EMP002', name: 'Amit Kumar', assignedSiteName: 'Pune - Phase 1' },
-        { employeeId: 'EMP003', name: 'Sandeep Yadav', assignedSiteName: 'Pune - Phase 2' },
-        { employeeId: 'EMP004', name: 'Vikash Singh', assignedSiteName: 'Pune - Phase 2' },
-        { employeeId: 'EMP005', name: 'Neha Patil', assignedSiteName: 'Pune - Phase 1' },
-      ];
+      const emps = matrixEmployees;
 
       // Build day columns map for each employee
       const matrixRows = [];
       emps.forEach((emp, idx) => {
+        const empSite = emp.assignedSiteName || '';
+        const empCircle = emp.circle || (empSite.includes('Pune') ? 'Prc' : empSite.includes('Mumbai') ? 'Rastapeth' : 'Prc');
+        const empDivision = emp.division || (empSite.includes('Pune') ? 'Pune Division' : empSite || 'Office');
+
         const row = {
           'SR. NO.': idx + 1,
           'Employee Code': emp.employeeId,
           'Employee Name': emp.name,
-          'LOCATION': emp.assignedSiteName || 'Site Location',
+          'Designation': emp.designation || 'Junior Engineer',
+          'CIRCLE': empCircle,
+          'Division': empDivision,
         };
 
         let pCount = 0;
@@ -237,32 +241,34 @@ const Reports = () => {
 
           // Check report rows for this employee and date
           const matchRec = reportRows.find((r) => r.employeeId === emp.employeeId && r.date === dtStr);
-          let code = '-';
+          let code = '';
 
           if (matchRec) {
             const st = matchRec.status;
             if (st === 'Present' || st === 'Checked Out') code = 'P';
             else if (st === 'Absent') code = 'A';
             else if (st === 'On Duty') code = 'OD';
-            else if (st === 'Weekly Off') code = 'WO';
-            else if (st === 'Holiday') code = 'PH';
+            else if (st === 'Weekly Off') code = 'O';
+            else if (st === 'Holiday') code = 'HL';
             else if (st === 'Leave') code = 'PL';
+            else if (st === 'WOP') code = 'WOP';
             else code = 'P';
           } else {
-            if (isHol) code = 'PH';
-            else if (isSun) code = 'WO';
+            if (isHol) code = 'HL';
+            else if (isSun) code = 'O';
             else if (dtStr < todayStr) code = 'A';
-            else code = '-';
+            else if (dtStr === todayStr) code = '-';
+            else code = '';
           }
 
           row[d] = code;
           if (code === 'P') pCount++;
-          else if (code === 'WOP') wopCount++;
+          else if (code === 'WOP' || code === 'O') wopCount++;
           else if (code === 'A') aCount++;
           else if (code === 'OD') odCount++;
           else if (code === 'WO') woCount++;
           else if (code === 'PL') plCount++;
-          else if (code === 'PH') phCount++;
+          else if (code === 'HL' || code === 'PH') phCount++;
         }
 
         row['P'] = pCount;
@@ -280,7 +286,7 @@ const Reports = () => {
       const worksheet = XLSX.utils.json_to_sheet(matrixRows);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendance');
-      XLSX.writeFile(workbook, `b4S_Attendance_Muster_Roll_${fromDate}_to_${toDate}.xlsx`);
+      XLSX.writeFile(workbook, `Adani_Attendance_Muster_Roll_${year}_${String(month).padStart(2, '0')}.xlsx`);
 
       showToast('Attendance Muster Roll Excel generated successfully!', 'info');
     } catch (e) {
@@ -322,14 +328,29 @@ const Reports = () => {
   const targetMonth = parseInt(fromDate.split('-')[1], 10) || 10;
   const daysInCurrentMonth = new Date(targetYear, targetMonth, 0).getDate();
 
-  const matrixEmployees = employeesList.length > 0 ? employeesList : [
-    { employeeId: 'EMP001', name: 'Rohit Sharma', assignedSiteName: 'Surat ST-1' },
-    { employeeId: 'EMP002', name: 'Amit Kumar', assignedSiteName: 'Pune - Phase 1' },
-    { employeeId: 'EMP003', name: 'Sandeep Yadav', assignedSiteName: 'Pune - Phase 2' },
-    { employeeId: 'EMP004', name: 'Vikash Singh', assignedSiteName: 'Pune - Phase 2' },
-    { employeeId: 'EMP005', name: 'Neha Patil', assignedSiteName: 'Pune - Phase 1' },
-    { employeeId: 'EMP700', name: 'Harsh Parmar', assignedSiteName: 'Ahmedabad - Solar Phase 1' },
+  const allMatrixEmployees = employeesList.length > 0 ? employeesList : [
+    { employeeId: 'b4S/Adani/01', name: 'Rohit Sharma', designation: 'Junior Engineer', circle: 'Gujarat Circle', division: 'Surat Division', assignedSiteName: 'Surat ST-1', assignedSiteId: 'site_2949e4fc' },
+    { employeeId: 'b4S/Adani/02', name: 'Amit Kumar', designation: 'Junior Engineer', circle: 'Prc', division: 'Office', assignedSiteName: 'Pune - Phase 1', assignedSiteId: 'site_pune_1' },
+    { employeeId: 'b4S/Adani/03', name: 'Sandeep Yadav', designation: 'Junior Engineer', circle: 'Prc', division: 'Bundgarden', assignedSiteName: 'Pune - Phase 2', assignedSiteId: 'site_pune_2' },
+    { employeeId: 'b4S/Adani/04', name: 'Vikash Singh', designation: 'Junior Engineer', circle: 'Prc', division: 'Bundgarden', assignedSiteName: 'Pune - Phase 2', assignedSiteId: 'site_pune_2' },
+    { employeeId: 'b4S/Adani/05', name: 'Neha Patil', designation: 'Division Head', circle: 'Prc', division: 'Office', assignedSiteName: 'Pune - Phase 1', assignedSiteId: 'site_pune_1' },
+    { employeeId: 'b4S/Adani/06', name: 'Harsh Parmar', designation: 'Junior Engineer', circle: 'Prc', division: 'st. joseph university', assignedSiteName: 'st. joseph university', assignedSiteId: 'site_st_joseph' },
   ];
+
+  const currentSiteVal = typeof selectedSite === 'string' ? selectedSite : (selectedSite?.target?.value || 'all');
+  const currentSiteLabel = sites.find((s) => s.value === currentSiteVal)?.label || '';
+
+  const siteFilteredEmployees = currentSiteVal === 'all'
+    ? allMatrixEmployees
+    : allMatrixEmployees.filter((emp) => {
+        const empSiteIds = emp.assignedSiteIds || (emp.assignedSiteId ? [emp.assignedSiteId] : []);
+        if (empSiteIds.includes(currentSiteVal)) return true;
+        if (emp.assignedSiteName && currentSiteLabel && (emp.assignedSiteName.toLowerCase() === currentSiteLabel.toLowerCase() || currentSiteLabel.toLowerCase().includes(emp.assignedSiteName.toLowerCase()))) return true;
+        if (reportRows.some((r) => r.employeeId === emp.employeeId)) return true;
+        return false;
+      });
+
+  const matrixEmployees = siteFilteredEmployees.length > 0 ? siteFilteredEmployees : allMatrixEmployees;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -364,6 +385,16 @@ const Reports = () => {
           >
             <Download className="w-4 h-4 mr-1.5" />
             <span>Detailed Logs</span>
+          </Button>
+
+          <Button
+            variant="outline"
+            size="md"
+            onClick={() => window.print()}
+            className="text-xs font-bold border-slate-300 text-slate-700 bg-white hover:bg-slate-50 flex items-center gap-1.5"
+          >
+            <Printer className="w-4 h-4 text-slate-600" />
+            <span>Export PDF Report</span>
           </Button>
 
           <Button
@@ -440,8 +471,11 @@ const Reports = () => {
             <label className="block text-xs font-semibold text-slate-600 mb-1">Deployment Location / Site</label>
             <Select
               options={sites}
-              value={selectedSite}
-              onChange={(val) => setSelectedSite(val)}
+              value={typeof selectedSite === 'string' ? selectedSite : (selectedSite?.target?.value || 'all')}
+              onChange={(e) => {
+                const val = e?.target ? e.target.value : (typeof e === 'string' ? e : 'all');
+                setSelectedSite(val);
+              }}
               className="text-xs sm:text-sm"
             />
           </div>
@@ -449,26 +483,36 @@ const Reports = () => {
       </Card>
 
       {/* Summary KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-4 shadow-sm border-slate-200">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Shift Records</p>
-          <p className="text-2xl font-black text-slate-900 mt-1">{reportSummary.totalRecords}</p>
-          <p className="text-[11px] text-slate-500 mt-0.5">Logged shift records</p>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Card className="p-3.5 shadow-sm border-slate-200">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Shifts</p>
+          <p className="text-xl font-black text-slate-900 mt-1">{reportSummary.totalRecords}</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">Logged shift records</p>
         </Card>
-        <Card className="p-4 shadow-sm border-slate-200">
-          <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider">Present Count</p>
-          <p className="text-2xl font-black text-emerald-700 mt-1">{reportSummary.presentCount}</p>
-          <p className="text-[11px] text-emerald-600 mt-0.5">Verified on-site shifts</p>
+        <Card className="p-3.5 shadow-sm border-slate-200 border-l-4 border-l-emerald-600">
+          <p className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider">Present</p>
+          <p className="text-xl font-black text-emerald-700 mt-1">{reportSummary.presentCount}</p>
+          <p className="text-[10px] text-emerald-600 mt-0.5">Verified on-site shifts</p>
         </Card>
-        <Card className="p-4 shadow-sm border-slate-200">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Avg Shift Hours</p>
-          <p className="text-2xl font-black text-brand-600 mt-1">{reportSummary.averageWorkingHours}</p>
-          <p className="text-[11px] text-slate-500 mt-0.5">Shift average</p>
+        <Card className="p-3.5 shadow-sm border-slate-200 border-l-4 border-l-amber-500">
+          <p className="text-[11px] font-bold text-amber-600 uppercase tracking-wider">Late Arrivals</p>
+          <p className="text-xl font-black text-amber-700 mt-1">{reportSummary.lateCount || 0}</p>
+          <p className="text-[10px] text-amber-600 mt-0.5">After 09:15 AM grace</p>
         </Card>
-        <Card className="p-4 shadow-sm border-slate-200">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Compliance Rate</p>
-          <p className="text-2xl font-black text-indigo-600 mt-1">{reportSummary.complianceRate}</p>
-          <p className="text-[11px] text-slate-500 mt-0.5">Geofence fidelity score</p>
+        <Card className="p-3.5 shadow-sm border-slate-200 border-l-4 border-l-orange-500">
+          <p className="text-[11px] font-bold text-orange-600 uppercase tracking-wider">Half Days</p>
+          <p className="text-xl font-black text-orange-700 mt-1">{reportSummary.halfDayCount || 0}</p>
+          <p className="text-[10px] text-orange-600 mt-0.5">&lt; 5h shift duration</p>
+        </Card>
+        <Card className="p-3.5 shadow-sm border-slate-200">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Avg Duration</p>
+          <p className="text-xl font-black text-brand-600 mt-1">{reportSummary.averageWorkingHours}</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">Shift duration avg</p>
+        </Card>
+        <Card className="p-3.5 shadow-sm border-slate-200">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Compliance</p>
+          <p className="text-xl font-black text-indigo-600 mt-1">{reportSummary.complianceRate}</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">Geofence accuracy</p>
         </Card>
       </div>
 
@@ -525,7 +569,13 @@ const Reports = () => {
                   ATTENDANCE FOR THE MONTH OF {new Date(targetYear, targetMonth - 1).toLocaleString('default', { month: 'long', year: 'numeric' }).toUpperCase()}
                 </h3>
                 <p className="text-xs text-slate-300 font-medium mt-0.5">
-                  b4S SOLUTIONS PVT. LTD. • LOCATION: {selectedSite === 'all' ? 'All Locations' : (sites.find((s) => s.value === selectedSite)?.label || selectedSite)}
+                  b4S SOLUTIONS PVT. LTD. • LOCATION:{' '}
+                  {(() => {
+                    const siteVal = typeof selectedSite === 'string' ? selectedSite : (selectedSite?.target?.value || 'all');
+                    if (siteVal === 'all') return 'All Locations';
+                    const matched = sites.find((s) => s.value === siteVal);
+                    return matched ? matched.label : String(siteVal || 'Selected Site');
+                  })()}
                 </p>
               </div>
             </div>
@@ -548,7 +598,9 @@ const Reports = () => {
                   <th className="py-2.5 px-3 text-left w-12 sticky left-0 bg-slate-800 z-10">SR.</th>
                   <th className="py-2.5 px-3 text-left min-w-[120px] sticky left-12 bg-slate-800 z-10">Employee Code</th>
                   <th className="py-2.5 px-3 text-left min-w-[160px]">Employee Name</th>
-                  <th className="py-2.5 px-3 text-left min-w-[140px]">LOCATION</th>
+                  <th className="py-2.5 px-3 text-left min-w-[130px]">Designation</th>
+                  <th className="py-2.5 px-3 text-left min-w-[100px]">CIRCLE</th>
+                  <th className="py-2.5 px-3 text-left min-w-[130px]">Division</th>
                   {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
                     <th
                       key={d}
@@ -579,6 +631,10 @@ const Reports = () => {
                   let pl = 0;
                   let ph = 0;
 
+                  const empSite = emp.assignedSiteName || '';
+                  const empCircle = emp.circle || (empSite.includes('Pune') ? 'Prc' : empSite.includes('Mumbai') ? 'Rastapeth' : 'Prc');
+                  const empDivision = emp.division || (empSite.includes('Pune') ? 'Pune Division' : empSite || 'Office');
+
                   return (
                     <tr key={emp.employeeId} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-2 px-3 text-left font-mono font-bold text-slate-500 sticky left-0 bg-white z-10">
@@ -590,8 +646,14 @@ const Reports = () => {
                       <td className="py-2 px-3 text-left font-bold text-slate-800">
                         {emp.name}
                       </td>
+                      <td className="py-2 px-3 text-left text-slate-700 font-medium text-[11px]">
+                        {emp.designation || 'Field Technician'}
+                      </td>
                       <td className="py-2 px-3 text-left text-slate-600 text-[11px]">
-                        {emp.assignedSiteName || 'Pune - Phase 1'}
+                        {empCircle}
+                      </td>
+                      <td className="py-2 px-3 text-left text-slate-600 text-[11px]">
+                        {empDivision}
                       </td>
                       {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
                         if (d > daysInCurrentMonth) {
@@ -613,25 +675,26 @@ const Reports = () => {
                           if (st === 'Present' || st === 'Checked Out') code = 'P';
                           else if (st === 'Absent') code = 'A';
                           else if (st === 'On Duty') code = 'OD';
-                          else if (st === 'Weekly Off') code = 'WO';
-                          else if (st === 'Holiday') code = 'PH';
+                          else if (st === 'Weekly Off') code = 'O';
+                          else if (st === 'Holiday') code = 'HL';
                           else if (st === 'Leave') code = 'PL';
+                          else if (st === 'WOP') code = 'WOP';
                           else code = 'P';
                         } else {
-                          if (isHol) code = 'PH';
-                          else if (isSun) code = 'WO';
+                          if (isHol) code = 'HL';
+                          else if (isSun) code = 'O';
                           else if (dtStr < todayStr) code = 'A';
                           else if (dtStr === todayStr) code = '-';
                           else code = '';
                         }
 
                         if (code === 'P') p++;
-                        else if (code === 'WOP') wop++;
+                        else if (code === 'WOP' || code === 'O') wop++;
                         else if (code === 'A') a++;
                         else if (code === 'OD') od++;
                         else if (code === 'WO') wo++;
                         else if (code === 'PL') pl++;
-                        else if (code === 'PH') ph++;
+                        else if (code === 'HL' || code === 'PH') ph++;
 
                         return (
                           <td
@@ -641,9 +704,9 @@ const Reports = () => {
                                 ? 'text-emerald-700 bg-emerald-50/50'
                                 : code === 'A'
                                 ? 'text-rose-700 bg-rose-50/40'
-                                : code === 'WO'
+                                : code === 'O' || code === 'WO'
                                 ? 'text-blue-700 bg-blue-50/40'
-                                : code === 'PH'
+                                : code === 'HL' || code === 'PH'
                                 ? 'text-amber-700 bg-amber-50/60 font-black'
                                 : code === 'OD'
                                 ? 'text-purple-700'

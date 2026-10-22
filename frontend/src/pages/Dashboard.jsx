@@ -23,6 +23,7 @@ import {
   Sparkles,
   ChevronRight,
   ExternalLink,
+  Users,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -145,17 +146,48 @@ const Dashboard = () => {
   });
   const [chartViewMode, setChartViewMode] = useState('weekly'); // 'weekly' or 'distribution'
 
+  const isSupervisor = user?.role === 'supervisor' || user?.role === 'admin';
+  const [checkedInStaff, setCheckedInStaff] = useState([]);
+  const [loadingStaff, setLoadingStaff] = useState(false);
+
   useEffect(() => {
     fetchTodayStatus();
     fetchMonthlyStats();
     fetchAssignedSite();
+    if (isSupervisor) {
+      fetchCheckedInStaff();
+    }
   }, [user]);
+
+  const fetchCheckedInStaff = async () => {
+    try {
+      setLoadingStaff(true);
+      const res = await api.get('/attendance/today-checked-in');
+      setCheckedInStaff(res.data || []);
+    } catch (e) {
+      console.warn('Checked-in staff fetch notice:', e);
+    } finally {
+      setLoadingStaff(false);
+    }
+  };
 
   const fetchAssignedSite = async () => {
     try {
-      const empId = user?.employeeId || 'EMP001';
+      const empId = user?.employeeId || 'b4S/Adani/01';
       const res = await api.get('/sites', { params: { employee_id: empId } });
-      const userSites = res.data || [];
+      let userSites = res.data || [];
+      const allowedIds = user?.assignedSiteIds || (user?.assignedSiteId ? [user.assignedSiteId] : []);
+      const allowedNames = user?.assignedSiteNames || (user?.assignedSiteName ? [user.assignedSiteName] : []);
+      if (allowedIds.length > 0 || allowedNames.length > 0) {
+        const filtered = userSites.filter(s => {
+          const sid = String(s.id || s._id);
+          const sname = s.name;
+          return allowedIds.includes(sid) || (sname && allowedNames.includes(sname));
+        });
+        if (filtered.length > 0) {
+          userSites = filtered;
+        }
+      }
       if (userSites.length > 0) {
         setAssignedSites(userSites);
 
@@ -267,7 +299,7 @@ const Dashboard = () => {
   const fetchTodayStatus = async () => {
     try {
       setLoading(true);
-      const res = await api.get(`/attendance/today?employeeId=${user?.employeeId || 'EMP001'}`);
+      const res = await api.get(`/attendance/today?employeeId=${user?.employeeId || 'b4S/Adani/01'}`);
       if (res.data && res.data.checkInTime) {
         setTodayStatus({
           isCheckedIn: res.data.isCheckedIn !== undefined ? res.data.isCheckedIn : true,
@@ -309,7 +341,7 @@ const Dashboard = () => {
 
   const fetchMonthlyStats = async () => {
     try {
-      const res = await api.get(`/attendance/history?employeeId=${user?.employeeId || 'EMP001'}`);
+      const res = await api.get(`/attendance/history?employeeId=${user?.employeeId || 'b4S/Adani/01'}`);
       const historyList = res.data && Array.isArray(res.data) ? res.data : [];
       const total = historyList.length;
       const present = historyList.filter(
@@ -483,14 +515,14 @@ const Dashboard = () => {
       path: '/check-out',
       color: 'bg-rose-100 text-rose-600',
     },
-    {
-      id: 'site',
-      title: 'Assigned Site',
-      subtitle: 'Substation specifications',
+    ...(isSupervisor ? [{
+      id: 'sites',
+      title: 'Site Management',
+      subtitle: 'Manage & assign sites',
       icon: Building2,
-      path: '/site',
+      path: '/sites',
       color: 'bg-amber-100 text-amber-700',
-    },
+    }] : []),
     {
       id: 'status',
       title: "Today's Status",
@@ -516,6 +548,12 @@ const Dashboard = () => {
     { name: 'Weekly Offs', value: 4, color: '#94A3B8' },
   ];
 
+  // 06:00 PM cutoff rule: employees cannot check in after 6:00 PM
+  const isPast6PM = useMemo(() => {
+    const hour = new Date().getHours();
+    return hour >= 18 || todayStatus?.isCheckInAllowedNow === false;
+  }, [todayStatus?.isCheckInAllowedNow]);
+
   return (
     <div className="space-y-7 w-full mx-auto">
       {/* 1. Executive Top Header Banner */}
@@ -536,7 +574,7 @@ const Dashboard = () => {
             <div className="text-sm sm:text-base text-slate-600 mt-2 flex flex-wrap items-center gap-3.5 font-semibold">
               <span>
                 Employee ID:{' '}
-                <strong className="text-slate-900 font-extrabold">{user?.employeeId || 'EMP001'}</strong>
+                <strong className="text-slate-900 font-extrabold">{user?.employeeId || 'b4S/Adani/01'}</strong>
               </span>
               <span>•</span>
               <span className="flex items-center gap-2 text-slate-800 font-extrabold">
@@ -703,6 +741,8 @@ const Dashboard = () => {
         className={`rounded-3xl p-7 sm:p-9 text-white shadow-xl relative overflow-hidden transition-all ${
           todayStatus.isCheckedIn
             ? 'bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800'
+            : isPast6PM
+            ? 'bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900'
             : 'bg-gradient-to-br from-blue-700 via-indigo-700 to-brand-800'
         }`}
       >
@@ -716,11 +756,13 @@ const Dashboard = () => {
                 Live Shift Verification
               </p>
               <h3 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight text-white mt-1">
-                {todayStatus.isCheckedIn ? 'You are Checked In' : 'Ready to Check In'}
+                {todayStatus.isCheckedIn ? 'You are Checked In' : isPast6PM ? 'Shift Hours Concluded' : 'Ready to Check In'}
               </h3>
               <p className="text-sm sm:text-base text-blue-100 font-semibold mt-1.5">
                 {todayStatus.isCheckedIn
                   ? `Shift active at ${todayStatus.checkInTime} • ${todayStatus.siteName}`
+                  : isPast6PM
+                  ? 'Shift check-in is strictly closed after 06:00 PM cutoff for today.'
                   : hasGps
                   ? `GPS verified at your current device location • ${todayStatus.siteName}`
                   : 'Acquiring satellite GPS lock for shift start...'}
@@ -728,39 +770,23 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Real-time Hours Worked & Distance Widgets & Action Buttons */}
+          {/* Real-time Hours Worked & Action Buttons */}
           <div className="flex flex-wrap items-center gap-4">
             {todayStatus.isCheckedIn && (
-              <>
-                <div className="flex items-center gap-3.5 bg-black/30 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/20 shadow-inner">
-                  <span className="relative flex h-3 w-3 shrink-0">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-400" />
-                  </span>
-                  <div className="text-left">
-                    <p className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-emerald-200">
-                      Live Hours Worked
-                    </p>
-                    <p className="font-mono text-xl sm:text-2xl font-black text-white tracking-wider leading-none mt-0.5">
-                      {elapsedFormatted}
-                    </p>
-                  </div>
+              <div className="flex items-center gap-3.5 bg-black/30 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/20 shadow-inner">
+                <span className="relative flex h-3 w-3 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-400" />
+                </span>
+                <div className="text-left">
+                  <p className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-emerald-200">
+                    Live Hours Worked
+                  </p>
+                  <p className="font-mono text-xl sm:text-2xl font-black text-white tracking-wider leading-none mt-0.5">
+                    {elapsedFormatted}
+                  </p>
                 </div>
-
-                {todayStatus.checkInLat != null && todayStatus.checkInLng != null && hasGps && (
-                  <div className="flex items-center gap-3.5 bg-black/30 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/20 shadow-inner">
-                    <Navigation className="w-5 h-5 text-blue-300 animate-pulse shrink-0" />
-                    <div className="text-left">
-                      <p className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-blue-200">
-                        Shift Distance (from Check-In)
-                      </p>
-                      <p className="font-mono text-xl sm:text-2xl font-black text-white tracking-wider leading-none mt-0.5">
-                        {formatDistance(calculateDistanceMeters(todayStatus.checkInLat, todayStatus.checkInLng, activeLat, activeLng))}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </>
+              </div>
             )}
 
             <div>
@@ -770,15 +796,38 @@ const Dashboard = () => {
                   className="px-7 sm:px-8 py-3.5 sm:py-4 text-base sm:text-lg font-black bg-white text-rose-700 hover:bg-rose-50 rounded-2xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 cursor-pointer whitespace-nowrap"
                 >
                   <LogOut className="w-5 h-5 text-rose-600" />
-                  <span>Check Out</span>
+                  <span>{isSupervisor ? 'Normal Check Out' : 'Check Out'}</span>
                 </button>
+              ) : isPast6PM ? (
+                <div className="flex flex-col items-start sm:items-end gap-1.5">
+                  <button
+                    type="button"
+                    disabled
+                    className="px-7 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-black bg-slate-600/70 text-slate-300 border border-slate-500/50 rounded-2xl shadow-inner cursor-not-allowed flex items-center gap-2.5 whitespace-nowrap"
+                  >
+                    <Clock className="w-5 h-5 text-amber-400" />
+                    <span>Check-In Closed (After 06:00 PM)</span>
+                  </button>
+                  <span className="text-[11px] font-bold text-amber-200">
+                    06:00 PM shift cutoff reached
+                  </span>
+                </div>
               ) : (
                 <button
                   onClick={() => navigate('/check-in')}
                   className="px-8 sm:px-9 py-3.5 sm:py-4 text-base sm:text-lg font-black bg-white text-emerald-800 hover:bg-emerald-50 rounded-2xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 cursor-pointer whitespace-nowrap"
                 >
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                  <span>Check In</span>
+                  {isSupervisor ? (
+                    <>
+                      <ShieldCheck className="w-5 h-5 text-blue-600" />
+                      <span>Normal Check In</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                      <span>Check In</span>
+                    </>
+                  )}
                 </button>
               )}
             </div>
@@ -794,10 +843,135 @@ const Dashboard = () => {
             </span>
           </div>
           <span className="bg-black/20 backdrop-blur-sm font-sans font-black px-3.5 py-1.5 rounded-full text-xs text-white">
-            Authorized Dynamic Geofence: 500m
+            {isSupervisor ? 'Supervisor Privilege Active • Normal Attendance' : 'Authorized Dynamic Geofence: 500m'}
           </span>
         </div>
       </div>
+
+      {/* 3B. SUPERVISOR EXCLUSIVE: Checked-In Employees Live List */}
+      {isSupervisor && (
+        <Card className="p-6 sm:p-8 border-slate-200 shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 font-bold shadow-xs">
+                <Users className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <h3 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                    Checked-In Field Staff Today
+                  </h3>
+                  <span className="px-3 py-1 bg-blue-100 text-blue-800 font-black text-xs rounded-full border border-blue-200">
+                    {checkedInStaff.length} Checked In
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">
+                  Live daily attendance roster of field technicians and installers
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                icon={RefreshCw}
+                onClick={fetchCheckedInStaff}
+                loading={loadingStaff}
+                className="text-xs font-bold"
+              >
+                Refresh List
+              </Button>
+            </div>
+          </div>
+
+          {checkedInStaff.length === 0 ? (
+            <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+              <Users className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+              <p className="text-sm font-bold text-slate-700">No field technicians checked in yet today</p>
+              <p className="text-xs text-slate-400 mt-1">Staff check-ins will appear live here as they punch in from substations.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-600 text-[11px] uppercase tracking-wider font-extrabold border-b border-slate-200">
+                  <tr>
+                    <th className="py-3 px-4">Employee</th>
+                    <th className="py-3 px-4">Substation Site</th>
+                    <th className="py-3 px-4">Check-In Time</th>
+                    <th className="py-3 px-4">Check-Out Status</th>
+                    <th className="py-3 px-4">Shift Status</th>
+                    <th className="py-3 px-4">Working Hours</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {checkedInStaff.map((staff, idx) => {
+                    const isLate = staff.status === 'Late' || staff.isLate;
+                    const isHalfDay = staff.status === 'Half Day' || staff.isHalfDay;
+                    const isOut = Boolean(staff.checkOutTime);
+
+                    return (
+                      <tr key={staff.id || staff._id || idx} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-brand-50 border border-brand-200 text-brand-700 font-black text-xs flex items-center justify-center shrink-0">
+                              {(staff.employeeName || staff.employeeId || 'RS').slice(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="font-extrabold text-slate-900 leading-tight">
+                                {staff.employeeName || staff.employeeId}
+                              </p>
+                              <p className="text-xs font-mono text-slate-500">{staff.employeeId}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="font-semibold text-slate-800">{staff.siteName || '--'}</span>
+                        </td>
+                        <td className="py-3.5 px-4 font-mono font-bold text-slate-700">
+                          {staff.checkInTime || '--'}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {isOut ? (
+                            <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg">
+                              Out: {staff.checkOutTime}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                              Active On-Duty
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1 ${
+                              isHalfDay
+                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                : isLate
+                                ? 'bg-orange-100 text-orange-800 border border-orange-300'
+                                : staff.status === 'Checked Out'
+                                ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                                : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            }`}
+                          >
+                            {isLate && !isHalfDay && staff.status !== 'Checked Out'
+                              ? 'Late Checked-In'
+                              : staff.status || 'Present'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
+                          {staff.workingHours || '--'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* 4. DATA VISUALIZATION: My Attendance Review & Hours Worked (Primary User Request) */}
       <Card className="p-6 sm:p-8 border-slate-200 shadow-sm space-y-6">
@@ -1114,10 +1288,10 @@ const Dashboard = () => {
               <Button
                 variant="outline"
                 size="md"
-                onClick={() => navigate('/site')}
+                onClick={() => navigate(isSupervisor ? '/sites' : '/attendance')}
                 className="text-xs sm:text-sm font-extrabold px-3.5 py-2 shadow-2xs hover:bg-slate-50"
               >
-                View Site
+                {isSupervisor ? 'Manage Sites' : 'View Status'}
               </Button>
             </div>
 
@@ -1211,10 +1385,10 @@ const Dashboard = () => {
                   variant="outline"
                   size="md"
                   fullWidth
-                  onClick={() => navigate('/site')}
+                  onClick={() => navigate(isSupervisor ? '/sites' : '/attendance')}
                   className="text-sm font-extrabold py-3 shadow-2xs hover:bg-slate-50"
                 >
-                  View Deployment Zone & Details
+                  {isSupervisor ? 'Manage Sites & Allocations' : "View Today's Status & Audit"}
                 </Button>
               </div>
             </div>

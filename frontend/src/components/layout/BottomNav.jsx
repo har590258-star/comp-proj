@@ -11,6 +11,7 @@ import {
   FileBarChart2,
   Radio,
   LogOut,
+  Clock,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -21,7 +22,7 @@ const BottomNav = () => {
     { to: '/dashboard', label: 'Home', icon: Home },
     { to: '/check-in', label: 'Check In', icon: CheckCircle2 },
     { to: '/check-out', label: 'Check Out', icon: LogOut },
-    { to: '/site', label: 'Assigned Site', icon: Building2 },
+    { to: '/attendance', label: 'Today', icon: Clock },
     { to: '/history', label: 'History', icon: Calendar },
   ];
 

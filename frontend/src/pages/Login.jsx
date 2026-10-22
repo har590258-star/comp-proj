@@ -13,6 +13,7 @@ import {
   LockKeyhole,
   Eye,
   EyeOff,
+  UserCheck,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Button from '../components/ui/Button';
@@ -20,7 +21,7 @@ import Input from '../components/ui/Input';
 import { useToast } from '../components/ui/Toast';
 
 const Login = () => {
-  const [username, setUsername] = useState('EMP001');
+  const [username, setUsername] = useState('b4S/Adani/01');
   const [password, setPassword] = useState('adani123');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
@@ -51,7 +52,7 @@ const Login = () => {
       const res = await login(username.trim(), password);
       if (res?.success) {
         showToast(`Welcome back, ${res.user.name}!`);
-        if (res.user.role === 'admin') {
+        if (res.user.role === 'admin' || res.user.role === 'supervisor') {
           navigate('/admin');
         } else {
           navigate('/dashboard');
@@ -76,12 +77,16 @@ const Login = () => {
 
   const selectDemoAccount = (userType) => {
     if (userType === 'technician') {
-      setUsername('EMP001');
+      setUsername('b4S/Adani/01');
       setPassword('adani123');
+      setError('');
+    } else if (userType === 'supervisor') {
+      setUsername('SUPER01');
+      setPassword('supervisor123');
       setError('');
     } else {
       setUsername('ADMIN01');
-      setPassword('adani123');
+      setPassword('admin123');
       setError('');
     }
   };
@@ -211,37 +216,53 @@ const Login = () => {
             <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider text-center mb-2">
               Select Role Account to Sign In
             </p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={() => selectDemoAccount('technician')}
-                className={`py-2.5 px-3 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all ${
-                  username === 'EMP001'
+                className={`py-2 px-1.5 sm:px-2 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all ${
+                  username === 'b4S/Adani/01' || username === 'EMP001'
                     ? 'bg-white text-brand-600 shadow-sm border border-slate-200 ring-2 ring-brand-500/20'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                 }`}
               >
-                <div className="flex items-center gap-1.5 font-black text-sm">
-                  <Wrench className="w-4 h-4 text-brand-600" />
-                  <span>User / Field Tech</span>
+                <div className="flex items-center gap-1 font-black text-xs sm:text-sm">
+                  <Wrench className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-600" />
+                  <span>Field Tech</span>
                 </div>
-                <span className="text-[10px] text-slate-500 font-medium">EMP001 (Opens User Side)</span>
+                <span className="text-[9px] sm:text-[10px] text-slate-500 font-medium truncate">b4S/Adani/01</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => selectDemoAccount('supervisor')}
+                className={`py-2 px-1.5 sm:px-2 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all ${
+                  username === 'SUPER01'
+                    ? 'bg-white text-emerald-600 shadow-sm border border-slate-200 ring-2 ring-emerald-500/20'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <div className="flex items-center gap-1 font-black text-xs sm:text-sm">
+                  <UserCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600" />
+                  <span>Supervisor</span>
+                </div>
+                <span className="text-[9px] sm:text-[10px] text-slate-500 font-medium truncate">SUPER01</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => selectDemoAccount('admin')}
-                className={`py-2.5 px-3 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all ${
+                className={`py-2 px-1.5 sm:px-2 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all ${
                   username === 'ADMIN01'
                     ? 'bg-white text-purple-600 shadow-sm border border-slate-200 ring-2 ring-purple-500/20'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                 }`}
               >
-                <div className="flex items-center gap-1.5 font-black text-sm">
-                  <ShieldCheck className="w-4 h-4 text-purple-600" />
-                  <span>Admin Portal</span>
+                <div className="flex items-center gap-1 font-black text-xs sm:text-sm">
+                  <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-600" />
+                  <span>Admin</span>
                 </div>
-                <span className="text-[10px] text-slate-500 font-medium">ADMIN01 (Opens Admin Side)</span>
+                <span className="text-[9px] sm:text-[10px] text-slate-500 font-medium truncate">ADMIN01</span>
               </button>
             </div>
           </div>
@@ -267,7 +288,7 @@ const Login = () => {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="e.g. EMP001 or 9876543210"
+                  placeholder="e.g. b4S/Adani/01 or 9876543210"
                   className="block w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 shadow-xs"
                   required
                 />
@@ -363,7 +384,7 @@ const Login = () => {
               Enter your registered Employee ID or mobile number to receive a secure password reset link.
             </p>
             <Input
-              placeholder="e.g. EMP001 or 9876543210"
+              placeholder="e.g. b4S/Adani/01 or 9876543210"
               value={forgotIdentifier}
               onChange={(e) => setForgotIdentifier(e.target.value)}
             />

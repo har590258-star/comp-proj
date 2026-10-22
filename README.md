@@ -301,8 +301,8 @@ The platform is pre-loaded with realistic sample accounts and seed data:
 | Portal | Employee ID | Email | Password | Role Scope |
 |---|---|---|---|---|
 | **Operations Admin** | `ADMIN01` | `admin@adani.com` | `Admin@123` (or `adani123`) | Full admin access: employee directory, site management, fleet tracking, reports & Excel export |
-| **Field Technician** | `EMP001` | `rahul.sharma@adani.com` | `Tech@123` (or `adani123`) | Technician access: dashboard, GPS check-in/out, today's status, history, assigned site |
-| **Field Technician** | `EMP002` | `priya.verma@adani.com` | `Tech@123` (or `adani123`) | Field technician profile |
+| **Field Technician** | `b4S/Adani/01` | `rahul.sharma@adani.com` | `Tech@123` (or `adani123`) | Technician access: dashboard, GPS check-in/out, today's status, history, assigned site |
+| **Field Technician** | `b4S/Adani/02` | `priya.verma@adani.com` | `Tech@123` (or `adani123`) | Field technician profile |
 
 *Quick Switcher: The login screen and top navigation bar include instant demo role switchers for effortless demonstration and testing.*
 

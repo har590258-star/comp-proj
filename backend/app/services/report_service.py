@@ -55,6 +55,8 @@ class ReportService:
         formatted_records = []
         present_cnt = 0
         absent_cnt = 0
+        late_cnt = 0
+        half_day_cnt = 0
         checked_out_cnt = 0
 
         for r in records:
@@ -67,6 +69,10 @@ class ReportService:
                 present_cnt += 1
             elif status == "Absent":
                 absent_cnt += 1
+            elif status == "Late":
+                late_cnt += 1
+            elif status == "Half Day":
+                half_day_cnt += 1
             elif status == "Checked Out":
                 checked_out_cnt += 1
 
@@ -83,6 +89,23 @@ class ReportService:
                         item["distanceTraveledFormatted"] = format_distance(d)
 
             formatted_records.append(item)
+
+        # Enrich records with employee designation, circle, division
+        emp_ids = list({r.get("employeeId") for r in formatted_records if r.get("employeeId")})
+        if emp_ids:
+            employees_col = get_collection("employees")
+            emp_docs = await employees_col.find({"employeeId": {"$in": emp_ids}}).to_list(len(emp_ids))
+            emp_map = {ed.get("employeeId"): ed for ed in emp_docs}
+            for r in formatted_records:
+                ed = emp_map.get(r.get("employeeId"))
+                if ed:
+                    r["designation"] = ed.get("designation") or "Field Technician"
+                    r["circle"] = ed.get("circle") or "Prc"
+                    r["division"] = ed.get("division") or ed.get("assignedSiteName") or "Office"
+                else:
+                    r["designation"] = "Field Technician"
+                    r["circle"] = "Prc"
+                    r["division"] = r.get("siteName") or "Office"
 
         total = len(formatted_records)
         compliance_pct = round((present_cnt + checked_out_cnt) / max(1, total) * 100, 1) if total > 0 else 0.0
@@ -113,6 +136,8 @@ class ReportService:
                 "totalRecords": total,
                 "presentCount": present_cnt,
                 "absentCount": absent_cnt,
+                "lateCount": late_cnt,
+                "halfDayCount": half_day_cnt,
                 "checkedOutCount": checked_out_cnt,
                 "averageWorkingHours": avg_hours_str,
                 "complianceRate": f"{compliance_pct}%"
@@ -122,12 +147,11 @@ class ReportService:
 
     async def generate_excel_bytes(self, filters: AttendanceReportFilter) -> bytes:
         """
-        Generates an exact replica of the attendance excel template:
-        - Embedded b4S Company Logo in header
-        - Exact muster roll structure matching template
-        - Filled with real employee and telemetry data from the website
-        - Focuses on the current month's attendance matrix (1 to 31)
-        - Sheet 2: 'Detailed Log' with full telemetry timestamps and GPS
+        Generates an exact replica of the requested Adani Muster Roll attendance excel:
+        - Columns: SR. NO., Employee Code, Employee Name, Designation, CIRCLE, Division, 1..31, P, WOP, A, OD, WO, PL, PH, Total
+        - Title banner: ADANI ATTENDANCE FOR THE MONTH OF <MONTH> <YEAR>
+        - Filled with real employee and attendance records from website database
+        - Sheet 2: 'Detailed Log' with full telemetry timestamps, GPS, and employee division info
         """
         now = datetime.now()
         # Default to current month and year
@@ -155,30 +179,37 @@ class ReportService:
         month_name = calendar.month_name[target_month]
         _, days_in_month = calendar.monthrange(target_year, target_month)
 
-        # 1. Fetch Real Employees from website database (technicians)
+        # 1. Fetch Real Employees from website database (technicians & field staff)
         employees_col = get_collection("employees")
         emp_query: Dict[str, Any] = {"role": {"$ne": "admin"}}
         if filters.employeeId and filters.employeeId != "all":
             emp_query["employeeId"] = filters.employeeId
         if filters.siteId and filters.siteId != "all":
-            emp_query["$or"] = [
+            sites_col = get_collection("sites")
+            site_doc = await sites_col.find_one({"$or": [{"id": filters.siteId}, {"_id": filters.siteId}, {"code": filters.siteId}]}) if sites_col is not None else None
+            site_target_name = site_doc.get("name") if site_doc else None
+            match_or = [
                 {"assignedSiteId": filters.siteId},
                 {"assignedSiteIds": filters.siteId}
             ]
+            if site_target_name:
+                match_or.extend([
+                    {"assignedSiteName": site_target_name},
+                    {"assignedSiteNames": site_target_name}
+                ])
+            emp_query["$or"] = match_or
 
-        employees = await employees_col.find(emp_query).sort("employeeId", 1).to_list(200)
+        employees = await employees_col.find(emp_query).sort("employeeId", 1).to_list(300)
+        if not employees:
+            # Fallback: if no employee strictly assigned to this site, include all active field technicians
+            employees = await employees_col.find({"role": {"$ne": "admin"}}).sort("employeeId", 1).to_list(300)
         if not employees:
             # Fallback to users collection
             users_col = get_collection("users")
             user_query: Dict[str, Any] = {"role": {"$ne": "admin"}}
             if filters.employeeId and filters.employeeId != "all":
                 user_query["employeeId"] = filters.employeeId
-            if filters.siteId and filters.siteId != "all":
-                user_query["$or"] = [
-                    {"assignedSiteId": filters.siteId},
-                    {"assignedSiteIds": filters.siteId}
-                ]
-            employees = await users_col.find(user_query).sort("employeeId", 1).to_list(200)
+            employees = await users_col.find(user_query).sort("employeeId", 1).to_list(300)
 
         # 2. Fetch Sites map for location labels
         sites_col = get_collection("sites")
@@ -197,7 +228,7 @@ class ReportService:
         if filters.siteId and filters.siteId != "all":
             location_title = site_map.get(filters.siteId, filters.siteId)
 
-        # 3. Fetch Real Attendance records for the target current month
+        # 3. Fetch Real Attendance records for the target month
         attendance_col = get_collection("attendance")
         month_prefix = f"{target_year}-{target_month:02d}"
         att_query: Dict[str, Any] = {
@@ -215,7 +246,7 @@ class ReportService:
         if filters.employeeId and filters.employeeId != "all":
             att_query["employeeId"] = filters.employeeId
 
-        att_records = await attendance_col.find(att_query).to_list(2000)
+        att_records = await attendance_col.find(att_query).to_list(5000)
 
         # Build attendance lookup map: (employeeId, day_int) -> status_code
         att_map = {}
@@ -231,12 +262,16 @@ class ReportService:
                         code = "P"
                     elif status_val == "Absent":
                         code = "A"
+                    elif status_val == "Late":
+                        code = "L"
+                    elif status_val == "Half Day":
+                        code = "HD"
                     elif status_val in ["On Duty", "OD"]:
                         code = "OD"
-                    elif status_val in ["Weekly Off", "WO"]:
-                        code = "WO"
-                    elif status_val in ["Holiday", "PH"]:
-                        code = "PH"
+                    elif status_val in ["Weekly Off", "WO", "O"]:
+                        code = "O"
+                    elif status_val in ["Holiday", "PH", "HL"]:
+                        code = "HL"
                     elif status_val in ["Leave", "PL"]:
                         code = "PL"
                     elif status_val in ["WOP", "Without Pay"]:
@@ -251,7 +286,7 @@ class ReportService:
         ws.title = "Attendance"
         ws.views.sheetView[0].showGridLines = True
 
-        # Styles matching template
+        # Exact styling matching the muster roll template
         font_title = Font(name="Calibri", size=13, bold=True, color="1F497D")
         font_company = Font(name="Calibri", size=10, bold=True, color="595959")
         font_loc = Font(name="Calibri", size=10, bold=True, color="1F497D")
@@ -283,52 +318,43 @@ class ReportService:
         align_center = Alignment(horizontal="center", vertical="center")
         align_left = Alignment(horizontal="left", vertical="center")
 
-        # 5. Insert Company Logo in Header (Top Left A1)
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        logo_path = os.path.join(base_dir, "assets", "b4s_logo.png")
-        if not os.path.exists(logo_path):
-            # Fallback path if needed
-            logo_path = r"e:\comp-proj\backend\app\assets\b4s_logo.png"
-
-        if os.path.exists(logo_path):
-            try:
-                logo_img = OpenpyxlImage(logo_path)
-                logo_img.width = 86
-                logo_img.height = 54
-                ws.add_image(logo_img, "A1")
-            except Exception as e:
-                print(f"Notice: Logo embedding skipped: {e}")
-
-        # Row 1: Sheet Title
-        ws.merge_cells("C1:AQ1")
-        cell_r1 = ws["C1"]
-        cell_r1.value = f"ATTENDANCE FOR THE MONTH OF {month_name.upper()}  {target_year}"
+        # 5. Row 1: Main Title
+        ws.merge_cells("A1:AS1")
+        cell_r1 = ws["A1"]
+        cell_r1.value = f"ADANI ATTENDANCE FOR THE MONTH OF {month_name[:3].upper()} {target_year}"
         cell_r1.font = font_title
         cell_r1.alignment = align_left
         ws.row_dimensions[1].height = 24
 
-        # Row 2: Subtitle / Company
-        ws.merge_cells("C2:AQ2")
+        # Row 2: Subtitle
+        ws.merge_cells("C2:AS2")
         cell_r2 = ws["C2"]
-        cell_r2.value = "b4S SOLUTIONS PVT. LTD. - MUSTER ROLL ATTENDANCE REGISTER"
+        cell_r2.value = f"                                 ATTENDANCE FOR THE MONTH OF {month_name.upper()}, {target_year}"
         cell_r2.font = font_company
         cell_r2.alignment = align_left
         ws.row_dimensions[2].height = 20
 
         # Row 3: Location
-        ws.merge_cells("C3:AQ3")
-        cell_r3 = ws["C3"]
-        cell_r3.value = f"LOCATION: {location_title}"
-        cell_r3.font = font_loc
-        cell_r3.alignment = align_left
+        cell_r3_lbl = ws["B3"]
+        cell_r3_lbl.value = "LOCATION"
+        cell_r3_lbl.font = font_loc
+        cell_r3_lbl.alignment = align_left
+
+        ws.merge_cells("C3:AS3")
+        cell_r3_val = ws["C3"]
+        cell_r3_val.value = location_title
+        cell_r3_val.font = font_loc
+        cell_r3_val.alignment = align_left
         ws.row_dimensions[3].height = 18
 
-        # Row 4: Column Headers
+        # Row 4: Exact Requested Column Headers
         headers = [
             "SR. NO.",
             "Employee Code",
             "Employee Name",
-            "LOCATION"
+            "Designation",
+            "CIRCLE",
+            "Division"
         ]
         # Days 1 to 31
         for d in range(1, 32):
@@ -342,23 +368,25 @@ class ReportService:
             cell.font = font_header
             cell.alignment = align_center
             cell.border = border_thin
-            if col_idx >= 36:
+            if col_idx >= 38:
                 cell.fill = fill_totals_header
             else:
                 cell.fill = fill_header
 
-        # Column Widths matching the template
+        # Column Widths
         col_widths = {
-            1: 7.0,    # SR. NO.
-            2: 17.0,   # Employee Code
+            1: 8.0,    # SR. NO.
+            2: 18.0,   # Employee Code
             3: 28.0,   # Employee Name
-            4: 20.0,   # LOCATION
+            4: 22.0,   # Designation
+            5: 14.0,   # CIRCLE
+            6: 22.0,   # Division
         }
-        for d_col in range(5, 36):
-            col_widths[d_col] = 4.3  # Days 1 to 31
-        for sum_col in range(36, 43):
-            col_widths[sum_col] = 5.8  # P, WOP, A, OD, WO, PL, PH
-        col_widths[43] = 9.5  # Total
+        for d_col in range(7, 38):
+            col_widths[d_col] = 4.5  # Days 1 to 31
+        for sum_col in range(38, 45):
+            col_widths[sum_col] = 5.5  # P, WOP, A, OD, WO, PL, PH
+        col_widths[45] = 9.5  # Total
 
         for c_idx, width in col_widths.items():
             ws.column_dimensions[get_column_letter(c_idx)].width = width
@@ -372,37 +400,78 @@ class ReportService:
             curr_row = start_row + emp_idx - 1
             ws.row_dimensions[curr_row].height = 20
 
-            emp_code = emp.get("employeeId", f"EMP{emp_idx:03d}")
+            emp_code = emp.get("employeeId", f"b4S/Adani/{emp_idx:02d}")
             emp_name = emp.get("name") or emp.get("fullName", "Field Technician")
-            emp_site = emp.get("assignedSiteName") or location_title
+            emp_desig = emp.get("designation") or "Junior Engineer"
 
-            # Col A: SR. NO.
+            emp_site = emp.get("assignedSiteName") or location_title
+            emp_circle = emp.get("circle")
+            if not emp_circle:
+                if "Pune" in str(emp_site):
+                    emp_circle = "Prc"
+                elif "Mumbai" in str(emp_site) or "Bandra" in str(emp_site):
+                    emp_circle = "Rastapeth"
+                elif "Surat" in str(emp_site) or "Ahmedabad" in str(emp_site):
+                    emp_circle = "Gujarat Circle"
+                else:
+                    emp_circle = "Prc"
+
+            emp_division = emp.get("division")
+            if not emp_division:
+                if "Pune" in str(emp_site):
+                    emp_division = "Pune Division"
+                elif "Phase 1" in str(emp_site):
+                    emp_division = "Office"
+                elif "Phase 2" in str(emp_site):
+                    emp_division = "Bundgarden"
+                elif "Surat" in str(emp_site):
+                    emp_division = "Surat Division"
+                elif "Mumbai" in str(emp_site):
+                    emp_division = "Office"
+                elif emp_site and emp_site != "All Locations":
+                    emp_division = emp_site
+                else:
+                    emp_division = "Office"
+
+            # Col 1: SR. NO.
             c_sr = ws.cell(row=curr_row, column=1, value=emp_idx)
             c_sr.font = font_body
             c_sr.alignment = align_center
             c_sr.border = border_thin
 
-            # Col B: Employee Code
+            # Col 2: Employee Code
             c_code = ws.cell(row=curr_row, column=2, value=emp_code)
             c_code.font = font_body_bold
             c_code.alignment = align_left
             c_code.border = border_thin
 
-            # Col C: Employee Name
+            # Col 3: Employee Name
             c_name = ws.cell(row=curr_row, column=3, value=emp_name)
             c_name.font = font_body_bold
             c_name.alignment = align_left
             c_name.border = border_thin
 
-            # Col D: LOCATION
-            c_loc = ws.cell(row=curr_row, column=4, value=emp_site)
-            c_loc.font = font_body
-            c_loc.alignment = align_left
-            c_loc.border = border_thin
+            # Col 4: Designation
+            c_desig = ws.cell(row=curr_row, column=4, value=emp_desig)
+            c_desig.font = font_body
+            c_desig.alignment = align_left
+            c_desig.border = border_thin
 
-            # Days 1 to 31
+            # Col 5: CIRCLE
+            c_circle = ws.cell(row=curr_row, column=5, value=emp_circle)
+            c_circle.font = font_body
+            c_circle.alignment = align_left
+            c_circle.border = border_thin
+
+            # Col 6: Division
+            c_div = ws.cell(row=curr_row, column=6, value=emp_division)
+            c_div.font = font_body
+            c_div.alignment = align_left
+            c_div.border = border_thin
+
+            # Days 1 to 31 (Cols 7 to 37)
             for day in range(1, 32):
-                col_i = 4 + day
+                col_i = 6 + day
                 cell_day = ws.cell(row=curr_row, column=col_i)
                 cell_day.border = border_thin
                 cell_day.alignment = align_center
@@ -420,15 +489,14 @@ class ReportService:
                 code = att_map.get((emp_code, day))
                 if not code:
                     if is_holiday:
-                        code = "PH"
+                        code = "HL"
                     elif is_sunday:
-                        code = "WO"
+                        code = "O"
                     elif curr_dt < today_date:
                         code = "A"
                     elif curr_dt == today_date:
                         code = "-"
                     else:
-                        # Future days remain empty in muster roll register
                         code = ""
 
                 cell_day.value = code
@@ -436,30 +504,35 @@ class ReportService:
                     cell_day.font = Font(name="Calibri", size=9, bold=True, color="047857")
                 elif code == "A":
                     cell_day.font = Font(name="Calibri", size=9, bold=True, color="B91C1C")
-                elif code == "WO":
+                elif code in ["O", "WO"]:
                     cell_day.font = Font(name="Calibri", size=9, bold=True, color="1D4ED8")
                     cell_day.fill = fill_sunday
-                elif code == "PH":
+                elif code in ["HL", "PH"]:
                     cell_day.font = Font(name="Calibri", size=9, bold=True, color="B45309")
                     cell_day.fill = fill_holiday
                 elif code == "OD":
                     cell_day.font = Font(name="Calibri", size=9, bold=True, color="6D28D9")
+                elif code == "WOP":
+                    cell_day.font = Font(name="Calibri", size=9, bold=True, color="047857")
+                elif code == "PL":
+                    cell_day.font = Font(name="Calibri", size=9, bold=True, color="D97706")
                 else:
                     cell_day.font = font_body
 
-            # Summary Columns (AJ to AQ / 36 to 43)
-            day_start_col = "E"
-            day_end_col = get_column_letter(4 + 31)
+            # Summary Columns (AL to AS / 38 to 45)
+            # Days range: G{curr_row}:AK{curr_row}
+            day_start_col = "G"
+            day_end_col = "AK"
 
             formulas = {
-                36: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"P")',
-                37: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"WOP")',
-                38: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"A")',
-                39: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"OD")',
-                40: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"WO")',
-                41: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"PL")',
-                42: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"PH")',
-                43: f'=AJ{curr_row}+AK{curr_row}+AM{curr_row}+AN{curr_row}+AO{curr_row}+AP{curr_row}',
+                38: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"P")',
+                39: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"WOP")+COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"O")',
+                40: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"A")',
+                41: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"OD")',
+                42: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"WO")',
+                43: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"PL")',
+                44: f'=COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"PH")+COUNTIF({day_start_col}{curr_row}:{day_end_col}{curr_row},"HL")',
+                45: f'=AL{curr_row}+AM{curr_row}+AO{curr_row}+AP{curr_row}+AQ{curr_row}+AR{curr_row}',
             }
 
             for col_s, formula in formulas.items():
@@ -480,12 +553,12 @@ class ReportService:
         c_tot_label.border = border_total
         c_tot_label.fill = fill_total_row
 
-        for c_blank in range(2, 36):
+        for c_blank in range(2, 38):
             c_b = ws.cell(row=tot_row, column=c_blank, value="")
             c_b.border = border_total
             c_b.fill = fill_total_row
 
-        for sum_c in range(36, 44):
+        for sum_c in range(38, 46):
             col_let = get_column_letter(sum_c)
             if num_emps > 0:
                 sum_form = f"=SUM({col_let}{start_row}:{col_let}{tot_row - 1})"
@@ -502,7 +575,7 @@ class ReportService:
         ws_detail.views.sheetView[0].showGridLines = True
 
         detail_headers = [
-            "Date", "Employee ID", "Employee Name", "Site Name", "Status",
+            "Date", "Employee ID", "Employee Name", "Designation", "Circle", "Division", "Site Name", "Status",
             "Check-In Time", "Check-Out Time", "Working Hours", "Shift Distance",
             "Check-In Latitude", "Check-In Longitude", "Check-Out Latitude", "Check-Out Longitude"
         ]
@@ -515,9 +588,11 @@ class ReportService:
             cell.alignment = align_center
             cell.border = border_thin
 
-        detail_widths = [14, 16, 24, 22, 14, 15, 15, 15, 16, 18, 18, 18, 18]
+        detail_widths = [14, 16, 24, 18, 14, 18, 22, 14, 15, 15, 15, 16, 18, 18, 18, 18]
         for idx, w in enumerate(detail_widths, 1):
             ws_detail.column_dimensions[get_column_letter(idx)].width = w
+
+        emp_details_map = {e.get("employeeId"): e for e in employees if e.get("employeeId")}
 
         for r_idx, r in enumerate(att_records, 2):
             ws_detail.row_dimensions[r_idx].height = 19
@@ -534,10 +609,18 @@ class ReportService:
                         from app.utils.geo import calculate_haversine_distance, format_distance
                         dist_fmt = format_distance(calculate_haversine_distance(c1_lat, c1_lon, c2_lat, c2_lon))
 
+            e_info = emp_details_map.get(r.get("employeeId")) or {}
+            e_desig = e_info.get("designation") or r.get("designation") or "Field Technician"
+            e_circle = e_info.get("circle") or r.get("circle") or "Prc"
+            e_div = e_info.get("division") or r.get("division") or r.get("siteName") or "Office"
+
             row_vals = [
                 r.get("date", ""),
                 r.get("employeeId", ""),
                 r.get("employeeName", ""),
+                e_desig,
+                e_circle,
+                e_div,
                 r.get("siteName", ""),
                 r.get("status", ""),
                 r.get("checkInTime", "--"),
@@ -554,11 +637,12 @@ class ReportService:
                 c = ws_detail.cell(row=r_idx, column=c_idx, value=val)
                 c.font = font_body
                 c.border = border_thin
-                c.alignment = align_left if c_idx in [2, 3, 4] else align_center
+                c.alignment = align_left if c_idx in [2, 3, 4, 5, 6, 7] else align_center
 
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
         return output.getvalue()
+
 
 report_service = ReportService()

@@ -32,6 +32,10 @@ const StatusBadge = ({ status, size = 'md', showIcon = true, className = '' }) =
     styles = 'bg-amber-50 text-amber-700 border-amber-200';
     customSymbol = <AlertCircle className="w-3 h-3 flex-shrink-0" />;
     label = 'Late';
+  } else if (norm.includes('half') || norm === 'hd') {
+    styles = 'bg-orange-50 text-orange-700 border-orange-200';
+    customSymbol = <Clock className="w-3 h-3 flex-shrink-0" />;
+    label = 'Half Day';
   }
 
   const sizes = {

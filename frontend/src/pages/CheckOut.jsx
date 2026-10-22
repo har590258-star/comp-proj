@@ -44,6 +44,21 @@ const CheckOut = () => {
   const [loadingShift, setLoadingShift] = useState(true);
   const [shiftData, setShiftData] = useState(null);
   const [successData, setSuccessData] = useState(null);
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const isSupervisor = user?.role === 'supervisor' || user?.role === 'admin';
+
+  // Strict Shift Timing Rule: Early check-out prohibited before 06:00 PM (18:00) for standard technicians
+  const isBefore6PM =
+    !isSupervisor &&
+    (shiftData?.isCheckOutAllowedNow === false || now.getHours() < 18);
 
   const siteLat = assignedSite?.latitude !== undefined && assignedSite?.latitude !== null ? Number(assignedSite.latitude) : null;
   const siteLng = assignedSite?.longitude !== undefined && assignedSite?.longitude !== null ? Number(assignedSite.longitude) : null;
@@ -96,7 +111,7 @@ const CheckOut = () => {
   const fetchActiveShift = async () => {
     try {
       setLoadingShift(true);
-      const res = await api.get(`/attendance/today?employeeId=${user?.employeeId || 'EMP001'}`);
+      const res = await api.get(`/attendance/today?employeeId=${user?.employeeId || 'b4S/Adani/01'}`);
       if (res.data) {
         setShiftData(res.data);
       }
@@ -130,22 +145,32 @@ const CheckOut = () => {
   };
 
   const handleConfirmCheckout = async () => {
-    const lat = activeLat ?? 18.5204;
-    const lng = activeLng ?? 73.8567;
+    if (isBefore6PM && !isSupervisor) {
+      showToast('Check-out notice: Checking out before 06:00 PM records shift as Half Day.', 'warning');
+    }
+
+    const lat = activeLat ?? siteLat ?? 18.5204;
+    const lng = activeLng ?? siteLng ?? 73.8567;
 
     setSubmitting(true);
     setConfirmModalOpen(false);
     try {
       const payload = {
-        employeeId: user?.employeeId || 'EMP001',
+        employeeId: user?.employeeId || 'b4S/Adani/01',
         latitude: Number(lat),
         longitude: Number(lng),
         accuracy: coordinates.accuracy || 10,
+        bypassRadiusCheck: Boolean(isSupervisor),
       };
 
       const res = await api.post('/attendance/check-out', payload);
       setSuccessData(res.data);
-      showToast('Checked out successfully at your departure location!', 'info');
+      showToast(
+        isSupervisor
+          ? 'Supervisor normal check-out successful!'
+          : 'Checked out successfully at your departure location!',
+        'info'
+      );
     } catch (err) {
       console.error('Check-out error:', err);
       const detail = err.response?.data?.detail;
@@ -209,21 +234,16 @@ const CheckOut = () => {
           </div>
           <div>
             <h3 className="text-lg font-bold text-slate-900">
-              {isAlreadyCheckedOut ? 'Shift Already Completed Today' : 'No Active Shift Found'}
+              {isAlreadyCheckedOut ? 'Shift Completed for Today' : 'No Active Shift Found'}
             </h3>
             <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
               {isAlreadyCheckedOut
-                ? `You have already checked out today at ${shiftData.checkOutTime}. Total duration logged: ${shiftData.workingHours || '--'}.`
-                : "You haven't checked in yet today. To record departure telemetry and compute working hours, please check in first."}
+                ? `You checked out at ${shiftData.checkOutTime} (Total duration: ${shiftData.workingHours || '--'}). Your daily shift is recorded.`
+                : "You haven't checked in yet today. Shift check-in is strictly permitted only before 09:00 AM."}
             </p>
           </div>
           <div className="pt-2 flex flex-wrap justify-center gap-3">
-            {isAlreadyCheckedOut ? (
-              <Button variant="primary" size="md" onClick={() => navigate('/check-in')}>
-                <LogIn className="w-4 h-4 mr-2" />
-                Check In Again for New Shift
-              </Button>
-            ) : (
+            {!isAlreadyCheckedOut && (
               <Button variant="primary" size="md" onClick={() => navigate('/check-in')}>
                 <LogIn className="w-4 h-4 mr-2" />
                 Go to Check In
@@ -392,34 +412,78 @@ const CheckOut = () => {
                 </div>
               </div>
 
+              {/* Supervisor Mode Indicator */}
+              {isSupervisor && (
+                <div className="p-3.5 mb-3 rounded-2xl bg-blue-50 border border-blue-200 text-blue-900 flex items-center justify-between text-xs w-full">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-blue-600 flex-shrink-0" />
+                    <div>
+                      <p className="font-extrabold text-blue-950">Supervisor Normal Check-Out</p>
+                      <p className="text-[11px] text-blue-700">GPS location lock requirement is bypassed.</p>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-blue-600 text-white shadow-2xs">
+                    Supervisor
+                  </span>
+                </div>
+              )}
+
               <Button
                 variant="danger"
                 size="lg"
                 fullWidth
                 loading={submitting}
-                disabled={!hasGps}
+                disabled={isSupervisor ? false : (!hasGps || isBefore6PM)}
                 onClick={() => setConfirmModalOpen(true)}
-                className="bg-rose-600 hover:bg-rose-700 text-white font-extrabold py-4 text-base shadow-md"
+                className={
+                  (!isSupervisor && (isBefore6PM || !hasGps))
+                    ? 'bg-slate-200 border border-slate-300 text-slate-400 font-bold py-4 text-sm cursor-not-allowed select-none shadow-none'
+                    : 'bg-rose-600 hover:bg-rose-700 text-white font-extrabold py-4 text-base shadow-md cursor-pointer'
+                }
               >
-                {hasGps ? 'Check Out Now' : 'Acquiring GPS Signal...'}
+                {isSupervisor
+                  ? 'Supervisor Check Out Now'
+                  : !hasGps
+                  ? 'Acquiring GPS Signal...'
+                  : isBefore6PM
+                  ? 'Locked: Check-Out Prohibited Before 06:00 PM'
+                  : 'Check Out Now'}
               </Button>
 
+              {isBefore6PM && !isSupervisor && (
+                <div className="p-3.5 mt-3 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs font-semibold text-amber-800 leading-snug">
+                    Shift Policy: Shift completes at 06:00 PM. Checking out before 06:00 PM will mark the day as Half-Day.
+                  </p>
+                </div>
+              )}
+
               <p className="text-xs text-slate-500 font-medium mt-4 leading-relaxed">
-                Your check-out time, location, and date will be automatically recorded in the Adani central database.
+                {isSupervisor
+                  ? 'Supervisor normal check-out active. Departure time and status will be recorded.'
+                  : isBefore6PM
+                  ? 'Employees with active shifts are automatically checked out at 06:00 PM.'
+                  : 'Your check-out time, location, and date will be automatically recorded in the Adani central database.'}
               </p>
             </Card>
 
             {/* Shift Recap Widget */}
-            <Card className="p-4 sm:p-5 flex items-center justify-between text-sm border-slate-200">
+            <Card className="p-4 sm:p-5 flex items-center justify-between text-sm border-slate-200 bg-slate-50/80">
               <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 font-bold">
-                  <Clock className="w-5 h-5 text-brand-600" />
+                <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold flex-shrink-0">
+                  <Clock className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="font-bold text-slate-900">
-                    Logged Time: {shiftData?.checkInTime || '--'} - Now
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-slate-900">Shift Timings & Auto-Checkout</p>
+                    <span className="text-[10px] font-bold bg-brand-100 text-brand-800 border border-brand-300 px-2 py-0.5 rounded-full">
+                      Shift Policy
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 font-medium mt-0.5">
+                    Standard shift ends at 06:00 PM. All active shifts are automatically checked out after 06:00 PM.
                   </p>
-                  <p className="text-xs text-slate-500 font-medium">Shift status will update to Checked Out</p>
                 </div>
               </div>
             </Card>

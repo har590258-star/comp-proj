@@ -49,9 +49,10 @@ async def export_attendance_excel(
     # Human-friendly filename with target month/year
     m_val = month or (int(toDate.split("-")[1]) if toDate else None) or (int(fromDate.split("-")[1]) if fromDate else 10)
     y_val = year or (int(toDate.split("-")[0]) if toDate else None) or (int(fromDate.split("-")[0]) if fromDate else 2026)
-    filename = f"b4S_Attendance_Muster_Roll_{y_val}_{m_val:02d}.xlsx"
+    filename = f"Adani_Attendance_Muster_Roll_{y_val}_{m_val:02d}.xlsx"
     return Response(
         content=excel_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+

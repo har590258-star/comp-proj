@@ -87,13 +87,32 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('adani_auth_token', 'admin_demo_jwt_token');
         localStorage.setItem('adani_user', JSON.stringify(adminUser));
         return { success: true, user: adminUser };
+      } else if (uname === 'SUPER01' || uname === 'SUPERVISOR') {
+        const superUser = {
+          id: 'usr_super01',
+          username: 'SUPER01',
+          employeeId: 'SUPER01',
+          name: 'Suresh Patil',
+          designation: 'Area Operations Supervisor',
+          role: 'supervisor',
+          assignedSiteId: 'site_pune_1',
+          assignedSiteName: 'Pune - Phase 1',
+          assignedSiteIds: ['site_pune_1', 'site_pune_2'],
+          assignedSiteNames: ['Pune - Phase 1', 'Pune - Phase 2'],
+          status: 'Active',
+        };
+        setUser(superUser);
+        setToken('supervisor_demo_jwt_token');
+        localStorage.setItem('adani_auth_token', 'supervisor_demo_jwt_token');
+        localStorage.setItem('adani_user', JSON.stringify(superUser));
+        return { success: true, user: superUser };
       } else {
         const techUser = {
-          id: `usr_${uname.toLowerCase() || 'emp001'}`,
-          username: uname || 'EMP001',
-          employeeId: uname || 'EMP001',
-          name: uname === 'EMP002' ? 'Amit Kumar' : 'Rahul Sharma',
-          designation: 'Field Technician',
+          id: `usr_${(uname || 'b4s_adani_01').replace('/', '_').toLowerCase()}`,
+          username: uname || 'b4S/Adani/01',
+          employeeId: uname || 'b4S/Adani/01',
+          name: uname === 'b4S/Adani/02' || uname === 'EMP002' ? 'Amit Kumar' : 'Rohit Sharma',
+          designation: 'Junior Engineer',
           role: 'technician',
           assignedSiteId: 'site_pune_1',
           assignedSiteName: 'Pune - Phase 1',
@@ -128,6 +147,8 @@ export const AuthProvider = ({ children }) => {
         refreshUser,
         isAuthenticated: Boolean(user),
         isAdmin: user?.role === 'admin',
+        isSupervisor: user?.role === 'supervisor',
+        canManage: user?.role === 'admin' || user?.role === 'supervisor',
       }}
     >
       {children}

@@ -88,12 +88,24 @@ const AssignedSite = () => {
 
   const fetchAssignedSite = async () => {
     try {
-      const empId = user?.employeeId || 'EMP001';
+      const empId = user?.employeeId || 'b4S/Adani/01';
       // 1. Fetch authorized assigned sites for this technician
       const res = await api.get('/sites', {
         params: { employee_id: empId }
       });
-      const siteList = res.data || [];
+      let siteList = res.data || [];
+      const allowedIds = user?.assignedSiteIds || (user?.assignedSiteId ? [user.assignedSiteId] : []);
+      const allowedNames = user?.assignedSiteNames || (user?.assignedSiteName ? [user.assignedSiteName] : []);
+      if (allowedIds.length > 0 || allowedNames.length > 0) {
+        const filtered = siteList.filter(s => {
+          const sid = String(s.id || s._id);
+          const sname = s.name;
+          return allowedIds.includes(sid) || (sname && allowedNames.includes(sname));
+        });
+        if (filtered.length > 0) {
+          siteList = filtered;
+        }
+      }
       if (siteList.length > 0) {
         setAssignedSites(siteList);
 

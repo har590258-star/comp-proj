@@ -10,17 +10,22 @@ class GeoPoint(BaseModel):
 class CheckInRequest(BaseModel):
     employeeId: str
     siteId: Optional[str] = None
-    latitude: float
-    longitude: float
+    latitude: Optional[float] = 0.0
+    longitude: Optional[float] = 0.0
     accuracy: Optional[float] = None
     bypassRadiusCheck: Optional[bool] = False
+    bypassTimingCheck: Optional[bool] = False
     photo: Optional[str] = None # Base64 encoded verification photo
 
 class CheckOutRequest(BaseModel):
     employeeId: str
-    latitude: float
-    longitude: float
+    latitude: Optional[float] = 0.0
+    longitude: Optional[float] = 0.0
     accuracy: Optional[float] = None
+    siteId: Optional[str] = None
+    siteName: Optional[str] = None
+    bypassTimingCheck: Optional[bool] = False
+    bypassRadiusCheck: Optional[bool] = False
 
 class AttendanceOut(BaseModel):
     id: str
@@ -28,27 +33,32 @@ class AttendanceOut(BaseModel):
     employeeName: Optional[str] = None
     siteId: Optional[str] = None
     siteName: Optional[str] = None
+    checkOutSiteId: Optional[str] = None
+    checkOutSiteName: Optional[str] = None
     date: str
     checkInTime: Optional[str] = None
     checkOutTime: Optional[str] = None
     checkInLocation: Optional[GeoPoint] = None
     checkOutLocation: Optional[GeoPoint] = None
-    status: str # "Present", "Absent", "Checked Out"
+    status: str # "Present", "Absent", "Late", "Half Day", "Checked Out"
     workingHours: Optional[str] = None
     distanceFromSite: Optional[float] = None
     distanceTraveledMeters: Optional[float] = None
     distanceTraveledFormatted: Optional[str] = None
     photoUrl: Optional[str] = None
+    remarks: Optional[str] = None
     createdAt: Optional[str] = None
     updatedAt: Optional[str] = None
 
 class TodayStatusOut(BaseModel):
     isCheckedIn: bool
-    status: str # "Present", "Absent", "Checked Out", "Not Checked In"
+    status: str # "Present", "Absent", "Late", "Half Day", "Checked Out", "Not Checked In"
     employeeId: str
     employeeName: str
     siteId: Optional[str] = None
     siteName: Optional[str] = None
+    checkOutSiteId: Optional[str] = None
+    checkOutSiteName: Optional[str] = None
     assignedSiteId: Optional[str] = None
     assignedSiteName: Optional[str] = None
     assignedSiteIds: Optional[List[str]] = Field(default_factory=list)
@@ -65,5 +75,24 @@ class TodayStatusOut(BaseModel):
     distanceTraveledMeters: Optional[float] = None
     distanceTraveledFormatted: Optional[str] = None
     workingHours: Optional[str] = None
+    remarks: Optional[str] = None
     photoUrl: Optional[str] = None
     createdAt: Optional[str] = None
+    workingHoursStart: Optional[str] = "09:00 AM"
+    workingHoursEnd: Optional[str] = "06:00 PM"
+    enforceShiftTimingRules: Optional[bool] = True
+    isCheckInAllowedNow: Optional[bool] = True
+    checkInRestrictionMsg: Optional[str] = None
+    isCheckOutAllowedNow: Optional[bool] = True
+    checkOutRestrictionMsg: Optional[str] = None
+
+class ManualAttendanceAdjustmentRequest(BaseModel):
+    employeeId: str
+    date: str
+    status: str # "Late", "Half Day", "Present", "Absent"
+    siteName: Optional[str] = None
+    checkInTime: Optional[str] = None
+    checkOutTime: Optional[str] = None
+    workingHours: Optional[str] = None
+    remarks: Optional[str] = None
+

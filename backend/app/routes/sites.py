@@ -26,19 +26,20 @@ async def list_sites(
         payload = decode_access_token(token)
         if payload:
             role = payload.get("role")
-            if role == "admin":
+            if role in ["admin", "supervisor"]:
                 is_admin = True
             else:
                 target_emp_id = target_emp_id or payload.get("employee_id") or payload.get("sub")
 
     query = {}
-    # Non-admin users are strictly restricted to seeing ONLY their assigned sites
-    if not is_admin and target_emp_id:
+    # When employee_id is specified (technician portal OR admin inspecting a technician's sites),
+    # OR when caller is not an admin, strictly restrict to ONLY sites assigned to that employee by admin
+    if target_emp_id:
         emp = await employees_col.find_one({"employeeId": target_emp_id})
         if not emp:
             emp = await users_col.find_one({"employeeId": target_emp_id})
 
-        if emp and emp.get("role") != "admin":
+        if emp:
             assigned_ids = list(emp.get("assignedSiteIds") or [])
             if emp.get("assignedSiteId") and emp.get("assignedSiteId") not in assigned_ids:
                 assigned_ids.append(emp.get("assignedSiteId"))
@@ -59,6 +60,34 @@ async def list_sites(
                 query = {"$or": conditions}
             else:
                 return []
+        else:
+            return []
+    elif not is_admin:
+        # Non-admin user with no explicit employee_id and no token -> fallback to default technician
+        target_emp_id = "b4S/Adani/01"
+        emp = await employees_col.find_one({"employeeId": target_emp_id})
+        if not emp:
+            emp = await users_col.find_one({"employeeId": target_emp_id})
+        if emp:
+            assigned_ids = list(emp.get("assignedSiteIds") or [])
+            if emp.get("assignedSiteId") and emp.get("assignedSiteId") not in assigned_ids:
+                assigned_ids.append(emp.get("assignedSiteId"))
+            assigned_names = list(emp.get("assignedSiteNames") or [])
+            if emp.get("assignedSiteName") and emp.get("assignedSiteName") not in assigned_names:
+                assigned_names.append(emp.get("assignedSiteName"))
+            conditions = []
+            for s_id in assigned_ids:
+                if s_id:
+                    conditions.extend([{"id": s_id}, {"_id": s_id}, {"code": s_id}])
+            for s_name in assigned_names:
+                if s_name:
+                    conditions.append({"name": s_name})
+            if conditions:
+                query = {"$or": conditions}
+            else:
+                return []
+        else:
+            return []
 
     sites = await sites_col.find(query).to_list(100)
     results = []
@@ -77,7 +106,7 @@ async def list_sites(
         results.append(item)
 
     # Sort results according to employee's assigned order if scoped to an employee
-    if not is_admin and target_emp_id and (assigned_ids or assigned_names):
+    if target_emp_id and (assigned_ids or assigned_names):
         def site_order_key(st):
             sid = str(st.get("id"))
             sname = st.get("name")
@@ -110,7 +139,7 @@ async def get_site(id: str, token: Optional[str] = Depends(oauth2_scheme)):
     # If caller is non-admin, verify this is one of their assigned sites
     if token:
         payload = decode_access_token(token)
-        if payload and payload.get("role") != "admin":
+        if payload and payload.get("role") not in ["admin", "supervisor"]:
             emp_id = payload.get("employee_id") or payload.get("sub")
             emp = await employees_col.find_one({"employeeId": emp_id}) or await users_col.find_one({"employeeId": emp_id})
             if emp:

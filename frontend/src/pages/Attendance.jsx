@@ -10,8 +10,9 @@ import {
   Check,
   CheckCircle2,
   LogOut,
-  Navigation,
   FileSpreadsheet,
+  AlertCircle,
+  Download,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
@@ -19,7 +20,6 @@ import Card from '../components/ui/Card';
 import StatusBadge from '../components/ui/StatusBadge';
 import Button from '../components/ui/Button';
 import HolidayModal, { downloadHolidayPdfFile } from '../components/ui/HolidayModal';
-import { Download } from 'lucide-react';
 
 const Attendance = () => {
   const navigate = useNavigate();
@@ -35,8 +35,11 @@ const Attendance = () => {
     siteAddress: 'Hinjewadi, Pune, Maharashtra',
     checkInLocation: '--',
     checkOutLocation: '--',
+    rawCheckInLocation: null,
+    rawCheckOutLocation: null,
     workingHours: '--',
     distanceTraveled: '--',
+    remarks: null,
   });
 
   const [elapsedFormatted, setElapsedFormatted] = useState('--');
@@ -103,7 +106,7 @@ const Attendance = () => {
 
   const fetchTodayData = async () => {
     try {
-      const res = await api.get(`/attendance/today?employeeId=${user?.employeeId || 'EMP001'}`);
+      const res = await api.get(`/attendance/today?employeeId=${user?.employeeId || 'b4S/Adani/01'}`);
       if (res.data && res.data.checkInTime) {
         setDetails({
           status: res.data.status || 'Present',
@@ -112,14 +115,18 @@ const Attendance = () => {
           date: res.data.date || new Date().toISOString().split('T')[0],
           siteName: res.data.siteName || user?.assignedSiteName || 'Pune - Phase 1',
           siteAddress: 'Hinjewadi, Pune, Maharashtra',
+          checkOutSiteName: res.data.checkOutSiteName,
           checkInLocation: res.data.checkInLocation
             ? `${res.data.checkInLocation.latitude.toFixed(6)}, ${res.data.checkInLocation.longitude.toFixed(6)}`
             : '--',
           checkOutLocation: res.data.checkOutLocation
             ? `${res.data.checkOutLocation.latitude.toFixed(6)}, ${res.data.checkOutLocation.longitude.toFixed(6)}`
             : '--',
+          rawCheckInLocation: res.data.checkInLocation,
+          rawCheckOutLocation: res.data.checkOutLocation,
           workingHours: res.data.workingHours || 'In Progress',
           distanceTraveled: res.data.distanceTraveledFormatted || (res.data.distanceTraveledMeters != null ? `${res.data.distanceTraveledMeters} m` : '--'),
+          remarks: res.data.remarks,
         });
       } else {
         setDetails((prev) => ({
@@ -127,8 +134,12 @@ const Attendance = () => {
           status: 'Not Checked In',
           checkInTime: '--',
           checkOutTime: '--',
+          checkOutSiteName: null,
+          rawCheckInLocation: null,
+          rawCheckOutLocation: null,
           workingHours: '--',
           distanceTraveled: '--',
+          remarks: null,
         }));
       }
     } catch (e) {
@@ -183,32 +194,93 @@ const Attendance = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column (7 cols): Top Banner & Key Attributes Card */}
         <div className="lg:col-span-7 space-y-6">
-          {/* Top Green Banner Card matching Screen 5 */}
-          <div className="bg-emerald-600 rounded-3xl p-7 text-white shadow-lg relative overflow-hidden">
-            <div className="flex items-center gap-5">
-              <div className="w-18 h-18 rounded-full bg-white flex items-center justify-center text-emerald-600 shadow-md flex-shrink-0">
-                <Check className="w-10 h-10 stroke-[3]" />
-              </div>
-              <div>
-                <h3 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
-                  {details.status}
-                </h3>
-                <div className="mt-2 space-y-1.5 text-sm sm:text-base text-emerald-100 font-semibold">
-                  <p>Checked In: {details.checkInTime || '--'}</p>
-                  <p>Checked Out: {details.checkOutTime || '--'}</p>
-                  {details.status === 'Present' && (
-                    <div className="flex items-center gap-2 pt-1 text-white">
-                      <span className="w-2 h-2 rounded-full bg-emerald-300 animate-ping" />
-                      <span>Hours Worked:</span>
-                      <span className="font-mono font-black text-white bg-black/25 px-2.5 py-0.5 rounded-lg tracking-wider">
-                        {elapsedFormatted}
-                      </span>
+          {/* Dynamic Top Banner Card for Present, Late, Half Day, Checked Out */}
+          {(() => {
+            const norm = (details.status || '').toLowerCase();
+            const isLate = norm.includes('late');
+            const isHalfDay = norm.includes('half');
+            const isCheckedOut = norm.includes('checked out');
+            const isAbsent = norm.includes('absent');
+
+            const bgClass = isLate
+              ? 'bg-amber-600'
+              : isHalfDay
+              ? 'bg-orange-600'
+              : isAbsent
+              ? 'bg-rose-600'
+              : isCheckedOut
+              ? 'bg-blue-600'
+              : 'bg-emerald-600';
+
+            const textColor = isLate
+              ? 'text-amber-600'
+              : isHalfDay
+              ? 'text-orange-600'
+              : isAbsent
+              ? 'text-rose-600'
+              : isCheckedOut
+              ? 'text-blue-600'
+              : 'text-emerald-600';
+
+            const subTextColor = isLate
+              ? 'text-amber-100'
+              : isHalfDay
+              ? 'text-orange-100'
+              : isAbsent
+              ? 'text-rose-100'
+              : isCheckedOut
+              ? 'text-blue-100'
+              : 'text-emerald-100';
+
+            return (
+              <div className={`${bgClass} rounded-3xl p-7 text-white shadow-lg relative overflow-hidden transition-colors`}>
+                <div className="flex items-center gap-5">
+                  <div className={`w-18 h-18 rounded-full bg-white flex items-center justify-center ${textColor} shadow-md flex-shrink-0`}>
+                    {isLate ? (
+                      <AlertCircle className="w-10 h-10 stroke-[2.5]" />
+                    ) : isHalfDay ? (
+                      <Clock className="w-10 h-10 stroke-[2.5]" />
+                    ) : (
+                      <Check className="w-10 h-10 stroke-[3]" />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
+                      {details.status}
+                    </h3>
+                    <div className={`mt-2 space-y-1.5 text-sm sm:text-base ${subTextColor} font-semibold`}>
+                      <p>Checked In: {details.checkInTime || '--'}</p>
+                      <p>Checked Out: {details.checkOutTime || '--'}</p>
+                      {(details.status === 'Present' || isLate || isHalfDay) && details.checkInTime && details.checkInTime !== '--' && (
+                        <div className="flex items-center gap-2 pt-1 text-white">
+                          <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                          <span>Hours Worked:</span>
+                          <span className="font-mono font-black text-white bg-black/25 px-2.5 py-0.5 rounded-lg tracking-wider">
+                            {details.checkOutTime && details.checkOutTime !== '--' ? details.workingHours : elapsedFormatted}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
+            );
+          })()}
+
+          {/* Supervisor / Policy Note if remarks present */}
+          {details.remarks && (
+            <div className="bg-amber-50 border border-amber-200/90 rounded-2xl p-4 flex items-start gap-3 shadow-2xs">
+              <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-bold text-amber-900">
+                  Supervisor / Admin Attendance Note
+                </p>
+                <p className="text-xs text-amber-800 mt-0.5 font-medium leading-relaxed">
+                  {details.remarks}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Detailed Key-Value Attributes Card matching Screen 5 */}
           <Card className="divide-y divide-slate-100 p-0 overflow-hidden shadow-card border-slate-200">
@@ -225,15 +297,22 @@ const Attendance = () => {
             <div className="flex items-center justify-between p-5">
               <div className="flex items-center gap-3.5 text-slate-600">
                 <Building2 className="w-5 h-5 text-slate-500" />
-                <span className="text-base font-semibold">Site</span>
+                <span className="text-base font-semibold">Substation Site</span>
               </div>
-              <span className="text-base font-bold text-slate-900">{details.siteName}</span>
+              <div className="text-right">
+                <span className="text-base font-bold text-slate-900 block">{details.siteName}</span>
+                {details.checkOutSiteName && details.checkOutSiteName !== details.siteName && (
+                  <span className="text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full inline-block mt-1">
+                    Checkout Site: {details.checkOutSiteName}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Location (Check In) */}
             <div className="flex items-center justify-between p-4 sm:p-5">
               <div className="flex items-center gap-3 text-slate-600">
-                <MapPin className="w-4 h-4 text-slate-400" />
+                <MapPin className="w-4 h-4 text-emerald-500" />
                 <span className="text-sm font-medium">Location (Check In)</span>
               </div>
               <span className="text-sm font-mono font-medium text-slate-800">
@@ -244,22 +323,11 @@ const Attendance = () => {
             {/* Location (Check Out) */}
             <div className="flex items-center justify-between p-4 sm:p-5">
               <div className="flex items-center gap-3 text-slate-600">
-                <MapPin className="w-4 h-4 text-slate-400" />
+                <MapPin className="w-4 h-4 text-blue-500" />
                 <span className="text-sm font-medium">Location (Check Out)</span>
               </div>
               <span className="text-sm font-mono font-medium text-slate-800">
                 {details.checkOutLocation}
-              </span>
-            </div>
-
-            {/* Shift Distance Traveled */}
-            <div className="flex items-center justify-between p-4 sm:p-5">
-              <div className="flex items-center gap-3 text-slate-600">
-                <Navigation className="w-4 h-4 text-blue-500" />
-                <span className="text-sm font-medium">Shift Distance Traveled</span>
-              </div>
-              <span className="text-sm font-extrabold text-blue-700 font-mono">
-                {details.distanceTraveled}
               </span>
             </div>
 
@@ -302,20 +370,20 @@ const Attendance = () => {
               <div className="relative">
                 <div className="absolute -left-6 top-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white ring-2 ring-emerald-100" />
                 <p className="text-xs font-bold text-slate-900">Shift Started (Checked In)</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">{details.checkInTime} • Substation Hinjewadi</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{details.checkInTime} • {details.siteName}</p>
                 <p className="text-[10px] font-mono text-emerald-600 mt-0.5">{details.checkInLocation}</p>
-              </div>
-
-              <div className="relative">
-                <div className="absolute -left-6 top-0.5 w-4 h-4 rounded-full bg-blue-500 border-2 border-white ring-2 ring-blue-100" />
-                <p className="text-xs font-bold text-slate-900">Active Field Survey</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">Smart meter sector telemetry online</p>
               </div>
 
               <div className="relative">
                 <div className="absolute -left-6 top-0.5 w-4 h-4 rounded-full bg-rose-500 border-2 border-white ring-2 ring-rose-100" />
                 <p className="text-xs font-bold text-slate-900">Shift Finalized (Checked Out)</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">{details.checkOutTime || 'Pending Check-Out'}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {details.checkOutTime || 'Pending Check-Out'}
+                  {details.checkOutSiteName ? ` • ${details.checkOutSiteName}` : ''}
+                </p>
+                {details.checkOutLocation && details.checkOutLocation !== '--' && (
+                  <p className="text-[10px] font-mono text-blue-600 mt-0.5">{details.checkOutLocation}</p>
+                )}
               </div>
             </div>
           </Card>
@@ -333,15 +401,6 @@ const Attendance = () => {
                 className="bg-brand-500 text-xs font-semibold"
               >
                 Go to Shift Check-Out
-              </Button>
-              <Button
-                variant="outline"
-                fullWidth
-                size="md"
-                onClick={() => navigate('/site')}
-                className="text-xs font-semibold"
-              >
-                View Assigned Site Details
               </Button>
               <Button
                 variant="outline"

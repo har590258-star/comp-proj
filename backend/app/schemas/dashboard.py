@@ -7,11 +7,21 @@ class RecentAttendanceItem(BaseModel):
     name: str
     designation: Optional[str] = "Field Technician"
     site: str
+    checkOutSite: Optional[str] = None
     status: str
     checkIn: Optional[str] = None
     checkOut: Optional[str] = None
     workingHours: Optional[str] = None
     distanceTraveledFormatted: Optional[str] = None
+    checkInLocation: Optional[Dict[str, Any]] = None
+    checkOutLocation: Optional[Dict[str, Any]] = None
+    date: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    division: Optional[str] = None
+    circle: Optional[str] = None
+    batteryLevel: Optional[float] = None
+    lastSeen: Optional[str] = None
 
 class ChartDataPoint(BaseModel):
     name: str

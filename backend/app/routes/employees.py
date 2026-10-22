@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, status
 from app.db.mongodb import get_collection
@@ -113,9 +114,31 @@ async def create_employee(emp: EmployeeCreate):
         "assignedSiteName": doc.get("assignedSiteName"),
         "assignedSiteIds": doc.get("assignedSiteIds", []),
         "assignedSiteNames": doc.get("assignedSiteNames", []),
-        "status": emp.status
+        "status": emp.status,
+        "latitude": doc.get("latitude"),
+        "longitude": doc.get("longitude"),
+        "locationAddress": doc.get("locationAddress")
     }
     await users_col.insert_one(user_doc)
+
+    # If coordinates are specified, log initial location telemetry
+    if doc.get("latitude") is not None and doc.get("longitude") is not None:
+        try:
+            locations_col = get_collection("locations")
+            if locations_col is not None:
+                await locations_col.insert_one({
+                    "employeeId": emp.employeeId,
+                    "latitude": float(doc["latitude"]),
+                    "longitude": float(doc["longitude"]),
+                    "accuracy": 8.0,
+                    "siteId": doc.get("assignedSiteId"),
+                    "timestamp": datetime.now().isoformat(),
+                    "batteryLevel": 100,
+                    "speed": 0
+                })
+        except Exception as e:
+            pass
+
     return doc
 
 from bson import ObjectId
@@ -154,6 +177,11 @@ async def update_employee(id: str, updates: EmployeeUpdate):
     # If assignedSiteIds updated, sync names and primary site
     if "assignedSiteIds" in update_dict:
         site_ids = update_dict.get("assignedSiteIds") or []
+        primary_id = update_dict.get("assignedSiteId")
+        if primary_id and primary_id in site_ids:
+            site_ids = [primary_id] + [s for s in site_ids if s != primary_id]
+        elif primary_id and not site_ids:
+            site_ids = [primary_id]
         temp_dict = {"assignedSiteIds": site_ids}
         temp_dict = await populate_assigned_sites_info(temp_dict)
         update_dict["assignedSiteIds"] = temp_dict["assignedSiteIds"]
@@ -172,13 +200,32 @@ async def update_employee(id: str, updates: EmployeeUpdate):
     # Sync with users collection
     user_sync_keys = [
         "name", "email", "phone", "role", "status",
-        "assignedSiteId", "assignedSiteName", "assignedSiteIds", "assignedSiteNames"
+        "assignedSiteId", "assignedSiteName", "assignedSiteIds", "assignedSiteNames",
+        "latitude", "longitude", "locationAddress"
     ]
     user_updates = {k: v for k, v in update_dict.items() if k in user_sync_keys}
     if updates.password:
         user_updates["password"] = hash_password(updates.password)
     if user_updates:
         await users_col.update_one({"employeeId": existing.get("employeeId")}, {"$set": user_updates})
+
+    # If new coordinates are supplied, update telemetry location log
+    if update_dict.get("latitude") is not None and update_dict.get("longitude") is not None:
+        try:
+            locations_col = get_collection("locations")
+            if locations_col is not None:
+                await locations_col.insert_one({
+                    "employeeId": existing.get("employeeId"),
+                    "latitude": float(update_dict["latitude"]),
+                    "longitude": float(update_dict["longitude"]),
+                    "accuracy": 8.0,
+                    "siteId": update_dict.get("assignedSiteId") or existing.get("assignedSiteId"),
+                    "timestamp": datetime.now().isoformat(),
+                    "batteryLevel": 100,
+                    "speed": 0
+                })
+        except Exception:
+            pass
 
     updated = await emp_col.find_one(match_query)
     updated_dict = dict(updated)

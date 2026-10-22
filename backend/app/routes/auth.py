@@ -10,7 +10,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     users_col = get_collection("users")
 
     if not token:
-        emp = await employees_col.find_one({"employeeId": "EMP001"}) if employees_col is not None else None
+        emp = await employees_col.find_one({"employeeId": "b4S/Adani/01"}) if employees_col is not None else None
+        if not emp:
+            emp = await employees_col.find_one({"employeeId": "EMP001"}) if employees_col is not None else None
         assigned_ids = list((emp and emp.get("assignedSiteIds")) or [])
         if not assigned_ids and emp and emp.get("assignedSiteId"):
             assigned_ids = [emp.get("assignedSiteId")]
@@ -24,11 +26,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
             assigned_names = ["Pune - Phase 1"]
 
         return {
-            "id": "usr_emp001",
-            "username": "EMP001",
-            "name": emp.get("name", "Rahul Sharma") if emp else "Rahul Sharma",
+            "id": "usr_b4s_adani_01",
+            "username": "b4S/Adani/01",
+            "name": emp.get("name", "Rohit Sharma") if emp else "Rohit Sharma",
             "role": "technician",
-            "employeeId": "EMP001",
+            "employeeId": "b4S/Adani/01",
             "assignedSiteId": assigned_ids[0],
             "assignedSiteName": assigned_names[0],
             "assignedSiteIds": assigned_ids,
@@ -67,6 +69,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         user["status"] = emp.get("status", user.get("status"))
 
     user["id"] = str(user.get("_id", user.get("id")))
+    if "_id" in user:
+        user["_id"] = str(user["_id"])
     if "password" in user:
         del user["password"]
     return user
@@ -87,18 +91,34 @@ async def login(req: LoginRequest):
     })
 
     if not user:
-        # Convenience fallback for demo/testing if user enters admin or EMP001 with default pass
-        if req.username in ["ADMIN01", "admin", "EMP001", "rahul", "9876543210"] and req.password in ["adani123", "admin123", "password"]:
-            role = "admin" if "admin" in req.username.lower() else "technician"
-            emp_id = "ADMIN01" if role == "admin" else "EMP001"
-            name = "Adani Operations Admin" if role == "admin" else "Rahul Sharma"
+        # Convenience fallback for demo/testing if user enters admin, supervisor or b4S/Adani/01 with default pass
+        uname_lower = req.username.lower()
+        if req.username in ["ADMIN01", "admin", "SUPER01", "supervisor", "b4S/Adani/01", "b4s/Adani/01", "EMP001", "rahul", "9876543210"] and req.password in ["adani123", "admin123", "supervisor123", "password"]:
+            if "admin" in uname_lower:
+                role = "admin"
+                emp_id = "ADMIN01"
+                name = "Adani Operations Admin"
+                designation = "Project Operations Lead"
+            elif "super" in uname_lower:
+                role = "supervisor"
+                emp_id = "SUPER01"
+                name = "Suresh Patil"
+                designation = "Area Operations Supervisor"
+            else:
+                role = "technician"
+                emp_id = "b4S/Adani/01"
+                name = "Rohit Sharma"
+                designation = "Junior Engineer"
             user = {
-                "id": f"usr_{emp_id.lower()}",
+                "id": f"usr_{emp_id.replace('/', '_').lower()}",
                 "username": emp_id,
                 "name": name,
+                "designation": designation,
                 "role": role,
                 "employeeId": emp_id,
                 "assignedSiteName": "Pune - Phase 1",
+                "assignedSiteIds": ["site_pune_1", "site_pune_2"],
+                "assignedSiteNames": ["Pune - Phase 1", "Pune - Phase 2"],
                 "status": "Active"
             }
         else:
@@ -110,7 +130,7 @@ async def login(req: LoginRequest):
         # Check password hash
         if not verify_password(req.password, user.get("password", "")):
             # Also allow fallback standard pass for demo ease
-            if req.password not in ["adani123", "admin123", "password"]:
+            if req.password not in ["adani123", "admin123", "supervisor123", "password"]:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Incorrect Mobile/User ID or Password"
@@ -164,4 +184,10 @@ async def forgot_password(req: ForgotPasswordRequest):
 
 @router.get("/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
-    return current_user
+    user = dict(current_user)
+    if "_id" in user:
+        user["_id"] = str(user["_id"])
+    user["id"] = str(user.get("id", user.get("_id", "")))
+    if "password" in user:
+        del user["password"]
+    return user

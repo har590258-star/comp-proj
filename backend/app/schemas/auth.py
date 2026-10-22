@@ -19,7 +19,7 @@ class UserOut(BaseModel):
     name: str
     email: Optional[str] = None
     phone: Optional[str] = None
-    role: str # "admin" or "technician"
+    role: str # "admin", "supervisor", "technician"
     employeeId: Optional[str] = None
     assignedSiteId: Optional[str] = None
     assignedSiteName: Optional[str] = None
